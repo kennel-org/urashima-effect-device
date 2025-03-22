@@ -577,7 +577,7 @@ void updateDisplay() {
         M5.Display.printf("TIME DIFF: 0.0 s");
       }
     } else if (time_difference > 0) {
-      // Relativistic time is behind normal time
+      // 相対論的時間が通常時間より遅れている（期待される動作）
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, YELLOW);
       M5.Display.setTextColor(YELLOW);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -587,7 +587,7 @@ void updateDisplay() {
         M5.Display.printf("TIME DIFF: -%.1f s", absDiff);
       }
     } else {
-      // Relativistic time is ahead of normal time
+      // 相対論的時間が通常時間より進んでいる（通常は発生しないはず）
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, CYAN);
       M5.Display.setTextColor(CYAN);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -892,7 +892,7 @@ void forceCompleteRedraw() {
         M5.Display.printf("TIME DIFF: 0.0 s");
       }
     } else if (time_difference > 0) {
-      // Relativistic time is behind normal time
+      // 相対論的時間が通常時間より遅れている（期待される動作）
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, YELLOW);
       M5.Display.setTextColor(YELLOW);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -902,7 +902,7 @@ void forceCompleteRedraw() {
         M5.Display.printf("TIME DIFF: -%.1f s", absDiff);
       }
     } else {
-      // Relativistic time is ahead of normal time
+      // 相対論的時間が通常時間より進んでいる（通常は発生しないはず）
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, CYAN);
       M5.Display.setTextColor(CYAN);
       M5.Display.setCursor(boxX + 3, boxY+3);
