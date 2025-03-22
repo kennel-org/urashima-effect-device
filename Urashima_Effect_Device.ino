@@ -215,6 +215,9 @@ void loop() {
     // Draw line below title
     M5.Display.drawLine(0, isSmallDisplay ? 20 : 30, displayWidth, isSmallDisplay ? 20 : 30, CYAN);
     
+    // Reset static variables to force redraw
+    resetDisplayCache();
+    
     updateDisplay();
   }
 }
@@ -261,6 +264,8 @@ void updateDisplay() {
   static double prev_relative_time = -1;
   static double prev_difference = -1;
   static int prev_gps_status = -1;
+  static bool line_drawn = false;
+  static bool reset_shown = false;
   
   int current_gps_status = 0;
   if (!gpsDataReceived) current_gps_status = 0;  // Not Connected
@@ -388,22 +393,6 @@ void updateDisplay() {
       M5.Display.print("--");
     }
     
-    // Always show mode toggle button with nice styling
-    int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
-    if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
-    
-    M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
-    M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
-    
-    // Center the text
-    String btnText = isSmallDisplay ? "BTN:TOGGLE" : "PRESS BUTTON TO TOGGLE";
-    int textWidth = btnText.length() * 6; // Approximate width
-    int textX = (displayWidth - textWidth) / 2;
-    
-    M5.Display.setCursor(textX > 0 ? textX : 0, btnY + (isSmallDisplay ? 4 : 6));
-    M5.Display.setTextColor(WHITE);
-    M5.Display.print(btnText);
-    
     return; // Skip the normal display update
   }
   
@@ -494,7 +483,6 @@ void updateDisplay() {
   }
   
   // Draw separator line
-  static bool line_drawn = false;
   if (!line_drawn) {
     int yPos = isSmallDisplay ? 68 : 100;
     M5.Display.drawLine(0, yPos, displayWidth, yPos, CYAN);
@@ -593,22 +581,12 @@ void updateDisplay() {
   }
   
   // Always show reset button with nice styling
-  static bool reset_shown = false;
   if (!reset_shown) {
     int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
     if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
     
     M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
     M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
-    
-    // Center the text
-    String btnText = isSmallDisplay ? "BTN:RESET" : "PRESS BUTTON TO RESET";
-    int textWidth = btnText.length() * 6; // Approximate width
-    int textX = (displayWidth - textWidth) / 2;
-    
-    M5.Display.setCursor(textX > 0 ? textX : 0, btnY + (isSmallDisplay ? 4 : 6));
-    M5.Display.setTextColor(WHITE);
-    M5.Display.print(btnText);
     
     reset_shown = true;
   }
@@ -622,4 +600,27 @@ void resetTimeCalculation() {
   
   // Reset message - minimal
   Serial.println("Time measurement reset");
+}
+
+// Reset display cache to force redraw
+void resetDisplayCache() {
+  // より安全な方法で画面を完全に再描画するための関数
+  
+  // 静的変数を直接リセットすることはできないため、
+  // 画面を一度クリアして、updateDisplay関数内で
+  // 値が変更されたと判断されるようにする
+  
+  // 画面をクリア
+  M5.Display.fillScreen(BLACK);
+  
+  // 次回のupdateDisplay呼び出しで全ての要素が再描画されるように
+  // グローバル変数を少し変更する
+  current_speed += 0.2;  // 速度を少し変更して再描画を強制
+  time_dilation += 0.00002;  // 時間膨張を少し変更
+  elapsed_device_time += 0.2;  // 経過時間を少し変更
+  elapsed_relativistic_time += 0.2;  // 相対論的時間を少し変更
+  time_difference = elapsed_device_time - elapsed_relativistic_time;  // 差を再計算
+  
+  // GPSステータスも更新されるように、最終GPS受信時間を変更
+  lastGpsDataTime = millis() - 1000;
 }
