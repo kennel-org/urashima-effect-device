@@ -484,7 +484,7 @@ void updateDisplay() {
     line_drawn = true;
   }
   
-  // Only update time displays if changed significantly
+  // Only update device time if changed significantly
   if (abs(prev_device_time - elapsed_device_time) > 0.1) {
     int yPos = isSmallDisplay ? 70 : 105;
     
@@ -495,7 +495,11 @@ void updateDisplay() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("DEV:");
       M5.Display.setTextColor(WHITE);
-      M5.Display.printf("%.1f s", elapsed_device_time);
+      
+      // 時:分:秒形式で表示
+      char timeStr[12];
+      formatTimeHMS(elapsed_device_time, timeStr);
+      M5.Display.print(timeStr);
     } else {
       // Standard layout for larger displays
       M5.Display.fillRect(5, yPos, displayWidth-10, 10, BLACK);
@@ -503,7 +507,11 @@ void updateDisplay() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("DEVICE TIME: ");
       M5.Display.setTextColor(WHITE);
-      M5.Display.printf("%.1f s", elapsed_device_time);
+      
+      // 時:分:秒形式で表示
+      char timeStr[12];
+      formatTimeHMS(elapsed_device_time, timeStr);
+      M5.Display.print(timeStr);
     }
     prev_device_time = elapsed_device_time;
   }
@@ -518,7 +526,11 @@ void updateDisplay() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("REL:");
       M5.Display.setTextColor(WHITE);
-      M5.Display.printf("%.1f s", elapsed_relativistic_time);
+      
+      // 時:分:秒形式で表示
+      char timeStr[12];
+      formatTimeHMS(elapsed_relativistic_time, timeStr);
+      M5.Display.print(timeStr);
     } else {
       // Standard layout for larger displays
       M5.Display.fillRect(5, yPos, displayWidth-10, 10, BLACK);
@@ -526,7 +538,11 @@ void updateDisplay() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("REL TIME: ");
       M5.Display.setTextColor(WHITE);
-      M5.Display.printf("%.1f s", elapsed_relativistic_time);
+      
+      // 時:分:秒形式で表示
+      char timeStr[12];
+      formatTimeHMS(elapsed_relativistic_time, timeStr);
+      M5.Display.print(timeStr);
     }
     prev_relative_time = elapsed_relativistic_time;
   }
@@ -637,6 +653,17 @@ void resetDisplayCache() {
   
   // GPSステータスも更新されるように、最終GPS受信時間を変更
   lastGpsDataTime = millis() - 1000;
+}
+
+// 時間表示のヘルパー関数
+void formatTimeHMS(float seconds, char* buffer) {
+  int totalSeconds = (int)seconds;
+  int hours = totalSeconds / 3600;
+  int minutes = (totalSeconds % 3600) / 60;
+  int secs = totalSeconds % 60;
+  int millisecs = (int)((seconds - totalSeconds) * 10); // 小数点以下1桁まで
+  
+  sprintf(buffer, "%02d:%02d:%02d.%01d", hours, minutes, secs, millisecs);
 }
 
 // 全ての要素を強制的に再描画する
@@ -779,7 +806,11 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("DEV:");
       M5.Display.setTextColor(WHITE);
-      M5.Display.printf("%.1f s", elapsed_device_time);
+      
+      // 時:分:秒形式で表示
+      char timeStr[12];
+      formatTimeHMS(elapsed_device_time, timeStr);
+      M5.Display.print(timeStr);
     } else {
       // Standard layout for larger displays
       M5.Display.fillRect(5, yPos, displayWidth-10, 10, BLACK);
@@ -787,7 +818,11 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("DEVICE TIME: ");
       M5.Display.setTextColor(WHITE);
-      M5.Display.printf("%.1f s", elapsed_device_time);
+      
+      // 時:分:秒形式で表示
+      char timeStr[12];
+      formatTimeHMS(elapsed_device_time, timeStr);
+      M5.Display.print(timeStr);
     }
     
     yPos = isSmallDisplay ? 78 : 115;
@@ -799,7 +834,11 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("REL:");
       M5.Display.setTextColor(WHITE);
-      M5.Display.printf("%.1f s", elapsed_relativistic_time);
+      
+      // 時:分:秒形式で表示
+      char timeStr[12];
+      formatTimeHMS(elapsed_relativistic_time, timeStr);
+      M5.Display.print(timeStr);
     } else {
       // Standard layout for larger displays
       M5.Display.fillRect(5, yPos, displayWidth-10, 10, BLACK);
@@ -807,7 +846,11 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("REL TIME: ");
       M5.Display.setTextColor(WHITE);
-      M5.Display.printf("%.1f s", elapsed_relativistic_time);
+      
+      // 時:分:秒形式で表示
+      char timeStr[12];
+      formatTimeHMS(elapsed_relativistic_time, timeStr);
+      M5.Display.print(timeStr);
     }
     
     // 時間差を強制的に再描画
