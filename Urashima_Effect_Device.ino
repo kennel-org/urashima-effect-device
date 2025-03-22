@@ -186,10 +186,10 @@ void loop() {
       Serial.println("Button A pressed - GPS raw data display OFF");
     }
     
-    // Clear notification after 1 second
-    delay(1000);
+    // Clear notification after 500ms (shorter delay)
+    delay(500);
     
-    // Clear screen and redraw everything
+    // Clear screen completely
     M5.Display.fillScreen(BLACK);
     
     // Redraw title and header
@@ -218,7 +218,8 @@ void loop() {
     // Reset static variables to force redraw
     resetDisplayCache();
     
-    updateDisplay();
+    // Force immediate complete redraw
+    forceCompleteRedraw();
   }
 }
 
@@ -287,106 +288,100 @@ void updateDisplay() {
     M5.Display.setTextColor(WHITE);
     int y = startY + 12;
     
-    // GPS Status
+    // GPS Status - more compact for small screens
     M5.Display.setCursor(2, y);
-    M5.Display.print("Status: ");
+    M5.Display.print("Status:");
     switch(current_gps_status) {
       case 0: M5.Display.setTextColor(RED); M5.Display.print("NO CONN"); break;
-      case 1: M5.Display.setTextColor(YELLOW); M5.Display.print("NO SIGNAL"); break;
-      case 2: M5.Display.setTextColor(BLUE); M5.Display.print("ACQUIRING"); break;
-      case 3: M5.Display.setTextColor(GREEN); M5.Display.print("CONNECTED"); break;
+      case 1: M5.Display.setTextColor(YELLOW); M5.Display.print("NO SIG"); break;
+      case 2: M5.Display.setTextColor(BLUE); M5.Display.print("ACQUIR"); break;
+      case 3: M5.Display.setTextColor(GREEN); M5.Display.print("CONN"); break;
     }
     M5.Display.setTextColor(WHITE);
-    y += 10;
+    y += 8; // Reduced spacing
     
     // Satellites
     M5.Display.setCursor(2, y);
-    M5.Display.print("Satellites: ");
+    M5.Display.print("Sats:");
     if (gps.satellites.isValid()) {
       M5.Display.print(gps.satellites.value());
     } else {
       M5.Display.print("--");
     }
-    y += 10;
+    y += 8; // Reduced spacing
     
-    // Location
+    // Location - more compact
     M5.Display.setCursor(2, y);
-    M5.Display.print("Lat: ");
+    M5.Display.print("Lat:");
     if (gps.location.isValid()) {
       M5.Display.print(gps.location.lat(), 6);
     } else {
       M5.Display.print("--");
     }
-    y += 10;
+    y += 8; // Reduced spacing
     
     M5.Display.setCursor(2, y);
-    M5.Display.print("Lng: ");
+    M5.Display.print("Lng:");
     if (gps.location.isValid()) {
       M5.Display.print(gps.location.lng(), 6);
     } else {
       M5.Display.print("--");
     }
-    y += 10;
+    y += 8; // Reduced spacing
     
     // Altitude
     M5.Display.setCursor(2, y);
-    M5.Display.print("Alt: ");
+    M5.Display.print("Alt:");
     if (gps.altitude.isValid()) {
       M5.Display.print(gps.altitude.meters(), 1);
       M5.Display.print("m");
     } else {
       M5.Display.print("--");
     }
-    y += 10;
+    y += 8; // Reduced spacing
     
     // Speed
     M5.Display.setCursor(2, y);
-    M5.Display.print("Speed: ");
+    M5.Display.print("Spd:");
     if (gps.speed.isValid()) {
       M5.Display.print(gps.speed.kmph(), 1);
       M5.Display.print("km/h");
     } else {
       M5.Display.print("--");
     }
-    y += 10;
+    y += 8; // Reduced spacing
     
     // Course
     M5.Display.setCursor(2, y);
-    M5.Display.print("Course: ");
+    M5.Display.print("Crs:");
     if (gps.course.isValid()) {
       M5.Display.print(gps.course.deg(), 1);
-      M5.Display.print("deg");
+      M5.Display.print("°");
     } else {
       M5.Display.print("--");
     }
-    y += 10;
+    y += 8; // Reduced spacing
     
-    // Date & Time
+    // Date & Time - combined to save space
     M5.Display.setCursor(2, y);
-    M5.Display.print("Date: ");
-    if (gps.date.isValid()) {
-      char dateStr[12];
-      sprintf(dateStr, "%04d-%02d-%02d", gps.date.year(), gps.date.month(), gps.date.day());
-      M5.Display.print(dateStr);
-    } else {
-      M5.Display.print("--");
-    }
-    y += 10;
+    M5.Display.print("Date/Time:");
+    y += 8; // Reduced spacing
     
     M5.Display.setCursor(2, y);
-    M5.Display.print("Time: ");
-    if (gps.time.isValid()) {
-      char timeStr[12];
-      sprintf(timeStr, "%02d:%02d:%02d", gps.time.hour(), gps.time.minute(), gps.time.second());
-      M5.Display.print(timeStr);
+    if (gps.date.isValid() && gps.time.isValid()) {
+      char dateTimeStr[20];
+      sprintf(dateTimeStr, "%04d-%02d-%02d %02d:%02d:%02d", 
+              gps.date.year(), gps.date.month(), gps.date.day(),
+              gps.time.hour(), gps.time.minute(), gps.time.second());
+      M5.Display.print(dateTimeStr);
     } else {
       M5.Display.print("--");
     }
-    y += 10;
+    y += 8; // Reduced spacing
     
     // HDOP (Horizontal Dilution of Precision)
     M5.Display.setCursor(2, y);
-    M5.Display.print("HDOP: ");
+    M5.Display.print("HDOP:");
     if (gps.hdop.isValid()) {
       M5.Display.print(gps.hdop.hdop(), 1);
     } else {
@@ -554,7 +549,18 @@ void updateDisplay() {
     // Use absolute value of time difference for consistent display
     float absDiff = abs(time_difference);
     
-    if (time_difference > 0) {
+    // 非常に小さい値（0に近い値）の場合は0として扱う
+    if (absDiff < 0.05) {
+      // ゼロに近い値の場合は特別な表示
+      M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, GREEN);
+      M5.Display.setTextColor(GREEN);
+      M5.Display.setCursor(boxX + 3, boxY+3);
+      if (isSmallDisplay) {
+        M5.Display.printf("DIFF:0.0s");
+      } else {
+        M5.Display.printf("TIME DIFF: 0.0 s");
+      }
+    } else if (time_difference > 0) {
       // Relativistic time is behind normal time
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, YELLOW);
       M5.Display.setTextColor(YELLOW);
@@ -617,10 +623,250 @@ void resetDisplayCache() {
   // グローバル変数を少し変更する
   current_speed += 0.2;  // 速度を少し変更して再描画を強制
   time_dilation += 0.00002;  // 時間膨張を少し変更
+  
+  // 時間の値を変更する際に、差が小さくなりすぎないように調整
+  double old_device_time = elapsed_device_time;
+  double old_relativistic_time = elapsed_relativistic_time;
+  
   elapsed_device_time += 0.2;  // 経過時間を少し変更
-  elapsed_relativistic_time += 0.2;  // 相対論的時間を少し変更
-  time_difference = elapsed_device_time - elapsed_relativistic_time;  // 差を再計算
+  elapsed_relativistic_time = old_relativistic_time + 
+                             (elapsed_device_time - old_device_time) * time_dilation;  // 相対論的時間も適切に変更
+  
+  // 時間差を再計算（非常に小さな値になるのを防ぐ）
+  time_difference = elapsed_device_time - elapsed_relativistic_time;
   
   // GPSステータスも更新されるように、最終GPS受信時間を変更
   lastGpsDataTime = millis() - 1000;
+}
+
+// 全ての要素を強制的に再描画する
+void forceCompleteRedraw() {
+  // 通常表示モードの場合のみ実行
+  if (!show_raw_gps) {
+    int displayWidth = M5.Display.width();
+    int displayHeight = M5.Display.height();
+    bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
+    
+    // 光速情報を再描画
+    if (isSmallDisplay) {
+      // For small displays, more compact information
+      M5.Display.setCursor(50, 22);  // Moved right to avoid overlap with GPS status
+      M5.Display.setTextColor(YELLOW);
+      M5.Display.print("REAL:");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.println("299,792");
+      
+      M5.Display.setCursor(50, 30);
+      M5.Display.setTextColor(YELLOW);
+      M5.Display.print("VIRT:");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.println("300");
+      
+      // Draw another line
+      M5.Display.drawLine(0, 38, displayWidth, 38, CYAN);
+    } else {
+      // For larger displays, more spaced information
+      M5.Display.setCursor(5, 35);
+      M5.Display.setTextColor(YELLOW);
+      M5.Display.print("REAL C: ");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.println("299,792 km/s");
+      
+      M5.Display.setCursor(5, 45);
+      M5.Display.setTextColor(YELLOW);
+      M5.Display.print("VIRT C: ");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.println("300 km/s");
+      
+      // Draw another line
+      M5.Display.drawLine(0, 55, displayWidth, 55, CYAN);
+    }
+    
+    // GPS状態を強制的に再描画
+    int current_gps_status = 0;
+    if (!gpsDataReceived) current_gps_status = 0;  // Not Connected
+    else if (millis() - lastGpsDataTime > 5000) current_gps_status = 1;  // No Signal
+    else if (gps.location.isValid()) current_gps_status = 3;  // Connected
+    else current_gps_status = 2;  // Acquiring
+    
+    if (isSmallDisplay) {
+      // Compact GPS status for small displays - moved below title area
+      M5.Display.fillRect(2, 22, 45, 8, BLACK);
+      M5.Display.setCursor(2, 22);
+    } else {
+      M5.Display.fillRect(displayWidth - 80, 10, 80, 10, NAVY);
+      M5.Display.setCursor(displayWidth - 80, 10);
+    }
+    M5.Display.print("GPS:");
+    
+    switch(current_gps_status) {
+      case 0:
+        M5.Display.setTextColor(RED);
+        M5.Display.println(isSmallDisplay ? "NO" : "NO CONN");
+        break;
+      case 1:
+        M5.Display.setTextColor(YELLOW);
+        M5.Display.println(isSmallDisplay ? "NS" : "NO SIGNAL");
+        break;
+      case 2:
+        M5.Display.setTextColor(BLUE);
+        M5.Display.println(isSmallDisplay ? "AQ" : "ACQUIRING");
+        break;
+      case 3:
+        M5.Display.setTextColor(GREEN);
+        M5.Display.println(isSmallDisplay ? "OK" : "CONNECTED");
+        break;
+    }
+    M5.Display.setTextColor(WHITE);
+    
+    // 速度情報を強制的に再描画
+    int yPos = isSmallDisplay ? 40 : 60;
+    
+    if (isSmallDisplay) {
+      // Compact layout for small displays
+      M5.Display.fillRect(2, yPos, displayWidth-4, 16, BLACK);
+      M5.Display.setCursor(2, yPos);
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print("SPD:");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.printf("%.1f km/h", current_speed);
+      M5.Display.setCursor(2, yPos+8);
+      M5.Display.printf("    %.4f km/s", current_speed / 3600.0);
+    } else {
+      // Standard layout for larger displays
+      M5.Display.fillRect(5, yPos, displayWidth-10, 20, BLACK);
+      M5.Display.setCursor(5, yPos);
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print("SPEED: ");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.printf("%.1f km/h", current_speed);
+      M5.Display.setCursor(5, yPos+10);
+      M5.Display.printf("       %.5f km/s", current_speed / 3600.0);
+    }
+    
+    // 時間膨張を強制的に再描画
+    yPos = isSmallDisplay ? 58 : 85;
+    
+    if (isSmallDisplay) {
+      // Compact layout for small displays
+      M5.Display.fillRect(2, yPos, displayWidth-4, 8, BLACK);
+      M5.Display.setCursor(2, yPos);
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print("DIL:");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.printf("%.6f", time_dilation);
+    } else {
+      // Standard layout for larger displays
+      M5.Display.fillRect(5, yPos, displayWidth-10, 10, BLACK);
+      M5.Display.setCursor(5, yPos);
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print("DILATION: ");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.printf("%.6f", time_dilation);
+    }
+    
+    // セパレータラインを描画
+    int lineYPos = isSmallDisplay ? 68 : 100;
+    M5.Display.drawLine(0, lineYPos, displayWidth, lineYPos, CYAN);
+    
+    // 時間表示を強制的に再描画
+    yPos = isSmallDisplay ? 70 : 105;
+    
+    if (isSmallDisplay) {
+      // Compact layout for small displays
+      M5.Display.fillRect(2, yPos, displayWidth-4, 8, BLACK);
+      M5.Display.setCursor(2, yPos);
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print("DEV:");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.printf("%.1f s", elapsed_device_time);
+    } else {
+      // Standard layout for larger displays
+      M5.Display.fillRect(5, yPos, displayWidth-10, 10, BLACK);
+      M5.Display.setCursor(5, yPos);
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print("DEVICE TIME: ");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.printf("%.1f s", elapsed_device_time);
+    }
+    
+    yPos = isSmallDisplay ? 78 : 115;
+    
+    if (isSmallDisplay) {
+      // Compact layout for small displays
+      M5.Display.fillRect(2, yPos, displayWidth-4, 8, BLACK);
+      M5.Display.setCursor(2, yPos);
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print("REL:");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.printf("%.1f s", elapsed_relativistic_time);
+    } else {
+      // Standard layout for larger displays
+      M5.Display.fillRect(5, yPos, displayWidth-10, 10, BLACK);
+      M5.Display.setCursor(5, yPos);
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print("REL TIME: ");
+      M5.Display.setTextColor(WHITE);
+      M5.Display.printf("%.1f s", elapsed_relativistic_time);
+    }
+    
+    // 時間差を強制的に再描画
+    yPos = isSmallDisplay ? 90 : 130;
+    int boxHeight = isSmallDisplay ? 12 : 15;
+    
+    M5.Display.fillRect(0, yPos, displayWidth, boxHeight, BLACK);
+    
+    // Show time difference with box
+    int boxWidth = displayWidth - (isSmallDisplay ? 8 : 20);
+    int boxX = isSmallDisplay ? 4 : 10;
+    int boxY = yPos;
+    
+    // Draw box
+    M5.Display.fillRect(boxX, boxY, boxWidth, boxHeight, DARKGREY);
+    
+    // Use absolute value of time difference for consistent display
+    float absDiff = abs(time_difference);
+    
+    // 非常に小さい値（0に近い値）の場合は0として扱う
+    if (absDiff < 0.05) {
+      // ゼロに近い値の場合は特別な表示
+      M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, GREEN);
+      M5.Display.setTextColor(GREEN);
+      M5.Display.setCursor(boxX + 3, boxY+3);
+      if (isSmallDisplay) {
+        M5.Display.printf("DIFF:0.0s");
+      } else {
+        M5.Display.printf("TIME DIFF: 0.0 s");
+      }
+    } else if (time_difference > 0) {
+      // Relativistic time is behind normal time
+      M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, YELLOW);
+      M5.Display.setTextColor(YELLOW);
+      M5.Display.setCursor(boxX + 3, boxY+3);
+      if (isSmallDisplay) {
+        M5.Display.printf("DIFF:-%.1fs", absDiff);
+      } else {
+        M5.Display.printf("TIME DIFF: -%.1f s", absDiff);
+      }
+    } else {
+      // Relativistic time is ahead of normal time
+      M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, CYAN);
+      M5.Display.setTextColor(CYAN);
+      M5.Display.setCursor(boxX + 3, boxY+3);
+      if (isSmallDisplay) {
+        M5.Display.printf("DIFF:+%.1fs", absDiff);
+      } else {
+        M5.Display.printf("TIME DIFF: +%.1f s", absDiff);
+      }
+    }
+    
+    M5.Display.setTextColor(WHITE);
+    
+    // リセットボタンの表示エリアを描画
+    int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
+    if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
+    
+    M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
+    M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
+  }
 }
