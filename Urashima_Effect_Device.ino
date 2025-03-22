@@ -80,7 +80,7 @@ void setup() {
       M5.Display.setTextColor(YELLOW);
       M5.Display.print("VIRT:");
       M5.Display.setTextColor(WHITE);
-      M5.Display.println("300");
+      M5.Display.println("0.3");
       
       // Draw another line
       M5.Display.drawLine(0, 38, displayWidth, 38, CYAN);
@@ -96,7 +96,7 @@ void setup() {
       M5.Display.setTextColor(YELLOW);
       M5.Display.print("VIRT C: ");
       M5.Display.setTextColor(WHITE);
-      M5.Display.println("300 km/s");
+      M5.Display.println("0.3 km/s");
       
       // Draw another line
       M5.Display.drawLine(0, 55, displayWidth, 55, CYAN);
@@ -697,7 +697,7 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(YELLOW);
       M5.Display.print("VIRT:");
       M5.Display.setTextColor(WHITE);
-      M5.Display.println("300");
+      M5.Display.println("0.3");
       
       // Draw another line
       M5.Display.drawLine(0, 38, displayWidth, 38, CYAN);
@@ -713,7 +713,7 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(YELLOW);
       M5.Display.print("VIRT C: ");
       M5.Display.setTextColor(WHITE);
-      M5.Display.println("300 km/s");
+      M5.Display.println("0.3 km/s");
       
       // Draw another line
       M5.Display.drawLine(0, 55, displayWidth, 55, CYAN);
