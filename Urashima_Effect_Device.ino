@@ -21,6 +21,7 @@ double elapsed_device_time = 0.0;  // Elapsed device time (seconds)
 double elapsed_relativistic_time = 0.0;  // Relativistically elapsed time (seconds)
 double time_difference = 0.0;  // Time difference (seconds)
 unsigned long last_update = 0;  // Last update time
+boolean show_raw_gps = false;  // Toggle for showing raw GPS data
 
 void setup() {
   // For debugging - initialize Serial first
@@ -165,7 +166,56 @@ void loop() {
   
   // Reset with button pressed - using M5Unified's BtnA
   if (M5.BtnA.wasPressed()) {
-    resetTimeCalculation();
+    // Toggle between normal display and raw GPS data display
+    show_raw_gps = !show_raw_gps;
+    
+    // Visual feedback for button press
+    int displayWidth = M5.Display.width();
+    int displayHeight = M5.Display.height();
+    bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
+    
+    // Display button press notification
+    M5.Display.fillRect(0, isSmallDisplay ? 40 : 60, displayWidth, 10, BLUE);
+    M5.Display.setTextColor(WHITE, BLUE);
+    M5.Display.setCursor(5, isSmallDisplay ? 40 : 60);
+    if (show_raw_gps) {
+      M5.Display.print("GPS RAW DATA: ON");
+      Serial.println("Button A pressed - GPS raw data display ON");
+    } else {
+      M5.Display.print("GPS RAW DATA: OFF");
+      Serial.println("Button A pressed - GPS raw data display OFF");
+    }
+    
+    // Clear notification after 1 second
+    delay(1000);
+    
+    // Clear screen and redraw everything
+    M5.Display.fillScreen(BLACK);
+    
+    // Redraw title and header
+    M5.Display.fillRect(0, 0, displayWidth, isSmallDisplay ? 20 : 30, NAVY);
+    
+    if (isSmallDisplay) {
+      // Smaller title for 128x128 displays - centered
+      M5.Display.setTextSize(1);
+      int titleX = (displayWidth - 15 * 6) / 2; // Centering "URASHIMA EFFECT"
+      M5.Display.setCursor(titleX > 0 ? titleX : 0, 7);
+      M5.Display.setTextColor(CYAN);
+      M5.Display.println("URASHIMA EFFECT");
+    } else {
+      // Larger title for bigger displays
+      M5.Display.setTextSize(2);
+      int titleX = (displayWidth - 17 * 12) / 2; // Centering "URASHIMA EFFECT"
+      M5.Display.setCursor(titleX > 0 ? titleX : 0, 5);
+      M5.Display.setTextColor(CYAN);
+      M5.Display.println("URASHIMA EFFECT");
+    }
+    M5.Display.setTextSize(1);
+    
+    // Draw line below title
+    M5.Display.drawLine(0, isSmallDisplay ? 20 : 30, displayWidth, isSmallDisplay ? 20 : 30, CYAN);
+    
+    updateDisplay();
   }
 }
 
@@ -218,6 +268,145 @@ void updateDisplay() {
   else if (gps.location.isValid()) current_gps_status = 3;  // Connected
   else current_gps_status = 2;  // Acquiring
 
+  // If showing raw GPS data, display that instead of the normal UI
+  if (show_raw_gps) {
+    // Clear the main content area (preserve the title bar)
+    int startY = isSmallDisplay ? 21 : 31;
+    M5.Display.fillRect(0, startY, displayWidth, displayHeight - startY, BLACK);
+    
+    // Display GPS raw data
+    M5.Display.setTextColor(GREEN);
+    M5.Display.setCursor(2, startY + 2);
+    M5.Display.print("GPS RAW DATA");
+    
+    M5.Display.setTextColor(WHITE);
+    int y = startY + 12;
+    
+    // GPS Status
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Status: ");
+    switch(current_gps_status) {
+      case 0: M5.Display.setTextColor(RED); M5.Display.print("NO CONN"); break;
+      case 1: M5.Display.setTextColor(YELLOW); M5.Display.print("NO SIGNAL"); break;
+      case 2: M5.Display.setTextColor(BLUE); M5.Display.print("ACQUIRING"); break;
+      case 3: M5.Display.setTextColor(GREEN); M5.Display.print("CONNECTED"); break;
+    }
+    M5.Display.setTextColor(WHITE);
+    y += 10;
+    
+    // Satellites
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Satellites: ");
+    if (gps.satellites.isValid()) {
+      M5.Display.print(gps.satellites.value());
+    } else {
+      M5.Display.print("--");
+    }
+    y += 10;
+    
+    // Location
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Lat: ");
+    if (gps.location.isValid()) {
+      M5.Display.print(gps.location.lat(), 6);
+    } else {
+      M5.Display.print("--");
+    }
+    y += 10;
+    
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Lng: ");
+    if (gps.location.isValid()) {
+      M5.Display.print(gps.location.lng(), 6);
+    } else {
+      M5.Display.print("--");
+    }
+    y += 10;
+    
+    // Altitude
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Alt: ");
+    if (gps.altitude.isValid()) {
+      M5.Display.print(gps.altitude.meters(), 1);
+      M5.Display.print("m");
+    } else {
+      M5.Display.print("--");
+    }
+    y += 10;
+    
+    // Speed
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Speed: ");
+    if (gps.speed.isValid()) {
+      M5.Display.print(gps.speed.kmph(), 1);
+      M5.Display.print("km/h");
+    } else {
+      M5.Display.print("--");
+    }
+    y += 10;
+    
+    // Course
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Course: ");
+    if (gps.course.isValid()) {
+      M5.Display.print(gps.course.deg(), 1);
+      M5.Display.print("deg");
+    } else {
+      M5.Display.print("--");
+    }
+    y += 10;
+    
+    // Date & Time
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Date: ");
+    if (gps.date.isValid()) {
+      char dateStr[12];
+      sprintf(dateStr, "%04d-%02d-%02d", gps.date.year(), gps.date.month(), gps.date.day());
+      M5.Display.print(dateStr);
+    } else {
+      M5.Display.print("--");
+    }
+    y += 10;
+    
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Time: ");
+    if (gps.time.isValid()) {
+      char timeStr[12];
+      sprintf(timeStr, "%02d:%02d:%02d", gps.time.hour(), gps.time.minute(), gps.time.second());
+      M5.Display.print(timeStr);
+    } else {
+      M5.Display.print("--");
+    }
+    y += 10;
+    
+    // HDOP (Horizontal Dilution of Precision)
+    M5.Display.setCursor(2, y);
+    M5.Display.print("HDOP: ");
+    if (gps.hdop.isValid()) {
+      M5.Display.print(gps.hdop.hdop(), 1);
+    } else {
+      M5.Display.print("--");
+    }
+    
+    // Always show mode toggle button with nice styling
+    int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
+    if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
+    
+    M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
+    M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
+    
+    // Center the text
+    String btnText = isSmallDisplay ? "BTN:TOGGLE" : "PRESS BUTTON TO TOGGLE";
+    int textWidth = btnText.length() * 6; // Approximate width
+    int textX = (displayWidth - textWidth) / 2;
+    
+    M5.Display.setCursor(textX > 0 ? textX : 0, btnY + (isSmallDisplay ? 4 : 6));
+    M5.Display.setTextColor(WHITE);
+    M5.Display.print(btnText);
+    
+    return; // Skip the normal display update
+  }
+  
   // Only update GPS status if changed
   if (prev_gps_status != current_gps_status) {
     if (isSmallDisplay) {
