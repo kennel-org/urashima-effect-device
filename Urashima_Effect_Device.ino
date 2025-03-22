@@ -599,6 +599,16 @@ void updateDisplay() {
     }
     
     M5.Display.setTextColor(WHITE);
+    
+    // リセットボタンの表示エリアを描画
+    /*
+    int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
+    if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
+    
+    M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
+    M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
+    */
+    
     prev_difference = time_difference;
   }
   
@@ -607,8 +617,8 @@ void updateDisplay() {
     int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
     if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
     
-    M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
-    M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
+    //M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
+    //M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
     
     reset_shown = true;
   }
@@ -906,10 +916,12 @@ void forceCompleteRedraw() {
     M5.Display.setTextColor(WHITE);
     
     // リセットボタンの表示エリアを描画
+    /*
     int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
     if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
     
     M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
     M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
+    */
   }
 }
