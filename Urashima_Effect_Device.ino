@@ -32,6 +32,10 @@ void setup() {
   M5.begin();
   Serial.println("M5 initialized");
   
+  // Print device information
+  Serial.println("Device information:");
+  Serial.printf("Display width: %d, height: %d\n", M5.Display.width(), M5.Display.height());
+  
   // Initialize display
   // Set initial display content
   if (M5.Display.width() > 0) {  // Check if display is available
@@ -166,6 +170,24 @@ void loop() {
   // Reset with button pressed - using M5Unified's BtnA
   if (M5.BtnA.wasPressed()) {
     resetTimeCalculation();
+    
+    // Visual feedback for button press
+    int displayWidth = M5.Display.width();
+    int displayHeight = M5.Display.height();
+    bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
+    
+    // Display button press notification
+    M5.Display.fillRect(0, isSmallDisplay ? 40 : 60, displayWidth, 10, RED);
+    M5.Display.setTextColor(WHITE, RED);
+    M5.Display.setCursor(5, isSmallDisplay ? 40 : 60);
+    M5.Display.print("BUTTON PRESSED - RESET");
+    
+    // Log button press
+    Serial.println("Button A pressed - Time measurement reset");
+    
+    // Clear notification after 1 second
+    delay(1000);
+    updateDisplay();
   }
 }
 
