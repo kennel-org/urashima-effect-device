@@ -12,9 +12,16 @@ const double MODIFIED_LIGHT_SPEED = 0.3;       // Modified speed of light (km/s)
 
 // IMU related constants
 #define USE_IMU_WHEN_GPS_LOST true  // Use IMU when GPS signal is lost
-#define IMU_ACCEL_THRESHOLD 0.1f    // Acceleration threshold (movement detected above this value)
+#define IMU_ACCEL_THRESHOLD 0.05f   // Acceleration threshold (movement detected above this value)
+#define IMU_GYRO_THRESHOLD 1.0f     // Gyroscope threshold (rotation detected above this value)
+#define IMU_SPEED_DECAY 0.98f       // Speed decay factor (simulates friction and air resistance)
+#define IMU_REST_THRESHOLD 0.03f    // Threshold to detect when device is at rest
+#define IMU_REST_DURATION 500       // Duration in ms to consider device at rest
+#define IMU_DRIFT_CORRECTION 0.02f  // Drift correction factor (higher = faster correction)
 #define IMU_CALIBRATION_TIME 5000   // IMU calibration time (milliseconds)
-#define IMU_SPEED_DECAY 0.95f       // Speed decay factor (simulates friction and air resistance)
+#define IMU_CALIBRATION_SAMPLES 100 // Number of samples for calibration
+#define GPS_IMU_FUSION_WEIGHT 0.2f  // Weight for sensor fusion (0.0 = IMU only, 1.0 = GPS only)
+#define GPS_VALID_TIMEOUT 5000      // Time in ms after which GPS data is considered stale
 
 // GPS related constants
 #define GPS_RX_PIN 1      // ATOMS3R GPIO1 for GPS RX
@@ -39,16 +46,28 @@ bool show_raw_gps = false;  // Whether to show raw GPS data (kept for compatibil
 bool show_raw_imu = false;  // Whether to show raw IMU data (kept for compatibility)
 int display_mode = 0;  // Display mode (0:Main, 1:GPS, 2:IMU)
 
+// Display update tracking variables
+double prev_device_time = 0.0;     // Previous device time for display updates
+double prev_rel_time = 0.0;        // Previous relativistic time for display updates
+double prev_time_diff = 0.0;       // Previous time difference for display updates
+
 // IMU related variables
-bool imuInitialized = false;       // Whether IMU has been initialized
-bool imuCalibrated = false;        // Whether IMU has been calibrated
+bool imuInitialized = false;
+bool imuCalibrated = false;
 bool usingImuForSpeed = false;     // Whether using IMU for speed measurement
-float imuAccelOffset[3] = {0, 0, 0}; // Acceleration offset values
-float imuVelocity[3] = {0, 0, 0};  // Velocity vector estimated from IMU
-float imuSpeed = 0.0f;             // Scalar speed value estimated from IMU
-unsigned long lastImuUpdate = 0;   // Last IMU update time
-float currentAccelX = 0.0f, currentAccelY = 0.0f, currentAccelZ = 0.0f; // Current acceleration values (for display)
-float currentGyroX = 0.0f, currentGyroY = 0.0f, currentGyroZ = 0.0f;    // Current gyroscope values (for display)
+float imuAccelOffset[3] = {0, 0, 0};
+float imuGyroOffset[3] = {0, 0, 0};
+float imuVelocity[3] = {0, 0, 0};
+float imuSpeed = 0;
+float currentAccelX = 0, currentAccelY = 0, currentAccelZ = 0;
+float currentGyroX = 0, currentGyroY = 0, currentGyroZ = 0;
+float filteredAccel[3] = {0, 0, 0};
+unsigned long lastImuUpdate = 0;
+unsigned long restStartTime = 0;
+bool isAtRest = false;
+float gpsImuFusedSpeed = 0;        // Speed calculated from GPS-IMU fusion
+float lastValidGpsSpeed = 0;       // Last valid GPS speed reading
+bool hasValidGpsSpeed = false;     // Whether we have a valid GPS speed reading
 
 void setup() {
   // Initialize M5 device
@@ -269,7 +288,6 @@ void updateDisplay() {
   static int prev_gps_status = -1;
   static double prev_speed = -1.0;
   static double prev_time_dilation = -1.0;
-  static double prev_time_diff = -1.0;
   
   if (!gpsDataReceived) {
     current_gps_status = 0; // No connection
@@ -563,7 +581,7 @@ void updateDisplay() {
   M5.Display.drawLine(0, lineYPos, displayWidth, lineYPos, CYAN);
   
   // Only update device time if changed significantly
-  if (abs(elapsed_device_time - prev_time_diff) > 0.1) {
+  if (abs(elapsed_device_time - prev_device_time) > 0.1) {
     int yPos = isSmallDisplay ? 70 : 105;
     
     if (isSmallDisplay) {
@@ -591,10 +609,11 @@ void updateDisplay() {
       formatTimeHMS(elapsed_device_time, timeStr);
       M5.Display.print(timeStr);
     }
-    prev_time_diff = elapsed_device_time;
+    prev_device_time = elapsed_device_time;
   }
   
-  if (abs(elapsed_relativistic_time - prev_time_diff) > 0.1) {
+  // Only update relativistic time if changed significantly
+  if (abs(elapsed_relativistic_time - prev_rel_time) > 0.1) {
     int yPos = isSmallDisplay ? 78 : 115;
     
     if (isSmallDisplay) {
@@ -622,7 +641,7 @@ void updateDisplay() {
       formatTimeHMS(elapsed_relativistic_time, timeStr);
       M5.Display.print(timeStr);
     }
-    prev_time_diff = elapsed_relativistic_time;
+    prev_rel_time = elapsed_relativistic_time;
   }
   
   // Only update time difference if changed significantly
@@ -1113,21 +1132,62 @@ void updateImuData() {
     accelY -= imuAccelOffset[1];
     accelZ -= imuAccelOffset[2];
     
+    // Apply low-pass filter to reduce noise
+    filteredAccel[0] = filteredAccel[0] * 0.8f + accelX * 0.2f;
+    filteredAccel[1] = filteredAccel[1] * 0.8f + accelY * 0.2f;
+    filteredAccel[2] = filteredAccel[2] * 0.8f + accelZ * 0.2f;
+    
     // Estimate velocity from acceleration
     unsigned long currentTime = millis();
     if (lastImuUpdate > 0) {
       float deltaT = (currentTime - lastImuUpdate) / 1000.0f; // in seconds
       
+      // Check if device is at rest (very low acceleration)
+      float accelMagnitude = sqrt(
+        filteredAccel[0] * filteredAccel[0] + 
+        filteredAccel[1] * filteredAccel[1] + 
+        filteredAccel[2] * filteredAccel[2]
+      );
+      
+      // Detect rest state
+      if (accelMagnitude < IMU_REST_THRESHOLD) {
+        if (!isAtRest) {
+          restStartTime = currentTime;
+          isAtRest = true;
+        } else if (currentTime - restStartTime > IMU_REST_DURATION) {
+          // Device has been at rest for sufficient time, reset velocity drift
+          imuVelocity[0] *= 0.5f;
+          imuVelocity[1] *= 0.5f;
+          imuVelocity[2] *= 0.5f;
+          
+          // If velocity is very small, reset it completely
+          if (abs(imuVelocity[0]) < 0.1f) imuVelocity[0] = 0;
+          if (abs(imuVelocity[1]) < 0.1f) imuVelocity[1] = 0;
+          if (abs(imuVelocity[2]) < 0.1f) imuVelocity[2] = 0;
+        }
+      } else {
+        isAtRest = false;
+      }
+      
       // Calculate velocity from acceleration (integration)
       // Ignore acceleration below threshold as noise
-      if (abs(accelX) > IMU_ACCEL_THRESHOLD) {
-        imuVelocity[0] += accelX * deltaT * 9.81f; // Convert to m/s^2
+      if (abs(filteredAccel[0]) > IMU_ACCEL_THRESHOLD) {
+        imuVelocity[0] += filteredAccel[0] * deltaT * 9.81f; // Convert to m/s^2
+      } else {
+        // Apply drift correction when acceleration is low
+        imuVelocity[0] *= (1.0f - IMU_DRIFT_CORRECTION);
       }
-      if (abs(accelY) > IMU_ACCEL_THRESHOLD) {
-        imuVelocity[1] += accelY * deltaT * 9.81f;
+      
+      if (abs(filteredAccel[1]) > IMU_ACCEL_THRESHOLD) {
+        imuVelocity[1] += filteredAccel[1] * deltaT * 9.81f;
+      } else {
+        imuVelocity[1] *= (1.0f - IMU_DRIFT_CORRECTION);
       }
-      if (abs(accelZ) > IMU_ACCEL_THRESHOLD) {
-        imuVelocity[2] += accelZ * deltaT * 9.81f;
+      
+      if (abs(filteredAccel[2]) > IMU_ACCEL_THRESHOLD) {
+        imuVelocity[2] += filteredAccel[2] * deltaT * 9.81f;
+      } else {
+        imuVelocity[2] *= (1.0f - IMU_DRIFT_CORRECTION);
       }
       
       // Apply decay to velocity (simulate friction and air resistance)
@@ -1142,6 +1202,31 @@ void updateImuData() {
       
       // Convert from m/s to km/h
       imuSpeed *= 3.6f;
+      
+      // Apply GPS calibration if available
+      if (hasValidGpsSpeed && (currentTime - lastGpsDataTime < GPS_VALID_TIMEOUT)) {
+        // Calculate the difference between GPS and IMU speeds
+        float speedDiff = lastValidGpsSpeed - imuSpeed;
+        
+        // If the difference is significant, adjust IMU velocity components proportionally
+        if (abs(speedDiff) > 1.0f) {  // More than 1 km/h difference
+          float adjustmentFactor = 1.0f + (speedDiff / imuSpeed) * GPS_IMU_FUSION_WEIGHT;
+          
+          // Prevent negative or extreme adjustments
+          if (adjustmentFactor < 0.5f) adjustmentFactor = 0.5f;
+          if (adjustmentFactor > 2.0f) adjustmentFactor = 2.0f;
+          
+          // Adjust velocity components
+          imuVelocity[0] *= adjustmentFactor;
+          imuVelocity[1] *= adjustmentFactor;
+          imuVelocity[2] *= adjustmentFactor;
+          
+          // Recalculate speed after adjustment
+          imuSpeed = sqrt(imuVelocity[0]*imuVelocity[0] + 
+                          imuVelocity[1]*imuVelocity[1] + 
+                          imuVelocity[2]*imuVelocity[2]) * 3.6f;
+        }
+      }
     }
     
     lastImuUpdate = currentTime;
@@ -1158,12 +1243,30 @@ void updateImuData() {
 
 // Update speed based on GPS or IMU
 void updateSpeed() {
-  // Use GPS speed if valid
-  if (gps.speed.isValid() && (millis() - lastGpsDataTime < 5000)) {
-    current_speed = gps.speed.kmph();
-    usingImuForSpeed = false;
+  unsigned long currentTime = millis();
+  bool gpsValid = gps.speed.isValid() && (currentTime - lastGpsDataTime < GPS_VALID_TIMEOUT);
+  
+  // Update GPS speed reference if valid
+  if (gpsValid) {
+    float gpsSpeed = gps.speed.kmph();
+    lastValidGpsSpeed = gpsSpeed;
+    hasValidGpsSpeed = true;
+    
+    // Calculate fused speed with weighted average
+    if (imuInitialized && imuCalibrated) {
+      // Gradually transition from GPS to IMU or vice versa
+      gpsImuFusedSpeed = gpsSpeed * GPS_IMU_FUSION_WEIGHT + imuSpeed * (1.0f - GPS_IMU_FUSION_WEIGHT);
+      
+      // Use fused speed
+      current_speed = gpsImuFusedSpeed;
+      usingImuForSpeed = false;
+    } else {
+      // If IMU not available, use GPS directly
+      current_speed = gpsSpeed;
+      usingImuForSpeed = false;
+    }
   } 
-  // Use IMU if GPS is unavailable
+  // Use IMU if GPS is unavailable but we have IMU
   else if (USE_IMU_WHEN_GPS_LOST && imuInitialized && imuCalibrated) {
     current_speed = imuSpeed;
     usingImuForSpeed = true;
@@ -1173,5 +1276,23 @@ void updateSpeed() {
     // Maintain speed or gradually decay it
     current_speed *= 0.95; // Gradual decay
     usingImuForSpeed = false;
+  }
+  
+  // Debug output
+  if (currentTime % 1000 < 50) {  // Approximately once per second
+    Serial.print("Speed: ");
+    Serial.print(current_speed);
+    if (usingImuForSpeed) {
+      Serial.println(" km/h (IMU)");
+    } else if (gpsValid) {
+      Serial.print(" km/h (GPS");
+      if (imuInitialized && imuCalibrated) {
+        Serial.println("+IMU fusion)");
+      } else {
+        Serial.println(")");
+      }
+    } else {
+      Serial.println(" km/h (estimated)");
+    }
   }
 }
