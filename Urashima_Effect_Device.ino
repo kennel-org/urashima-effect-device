@@ -7,44 +7,67 @@ const double ORIGINAL_LIGHT_SPEED = 299792.458;  // Actual speed of light (km/s)
 const double MODIFIED_LIGHT_SPEED = 0.3;       // Modified speed of light (km/s)
 
 // GPS connection pin settings
-#define GPS_RX_PIN 5  // G5 pin - Receives data from GPS
-#define GPS_TX_PIN -1  // TX pin is not connected
+#define GPS_RX_PIN 1      // ATOMS3R GPIO1 for GPS RX
+#define GPS_TX_PIN 2      // ATOMS3R GPIO2 for GPS TX
 
-// Global variables
+// IMU関連の定数
+#define USE_IMU_WHEN_GPS_LOST true  // GPSが捕捉できない場合にIMUを使用するかどうか
+#define IMU_ACCEL_THRESHOLD 0.1f    // 加速度閾値（これ以上の加速度を検出した場合に移動と判断）
+#define IMU_CALIBRATION_TIME 5000   // IMUキャリブレーション時間（ミリ秒）
+#define IMU_SPEED_DECAY 0.95f       // 速度減衰係数（摩擦や空気抵抗をシミュレート）
+
+// GPS関連の定数
+#define GPS_RX_PIN 1      // ATOMS3R GPIO1 for GPS RX
+#define GPS_TX_PIN 2      // ATOMS3R GPIO2 for GPS TX
+
+// TinyGPS++オブジェクト
 TinyGPSPlus gps;
-HardwareSerial GPSSerial(1);  // Serial port for GPS
-unsigned long lastGpsDataTime = 0;
-boolean gpsDataReceived = false;
-double current_speed = 0.0;    // Current speed (km/h)
-double time_dilation = 0.0;    // Time dilation factor
-double elapsed_device_time = 0.0;  // Elapsed device time (seconds)
-double elapsed_relativistic_time = 0.0;  // Relativistically elapsed time (seconds)
-double time_difference = 0.0;  // Time difference (seconds)
-unsigned long last_update = 0;  // Last update time
-boolean show_raw_gps = false;  // Toggle for showing raw GPS data
+
+// ソフトウェアシリアル
+HardwareSerial GPSSerial(1);  // UART1を使用
+
+// グローバル変数
+double current_speed = 0.0;  // 現在の速度 (km/h)
+double time_dilation = 1.0;  // 時間膨張率
+double elapsed_device_time = 0.0;  // 経過したデバイス時間（秒）
+double elapsed_relativistic_time = 0.0;  // 経過した相対論的時間（秒）
+double time_difference = 0.0;  // 時間差（秒）
+unsigned long last_update = 0;  // 最後の更新時間
+bool gpsDataReceived = false;  // GPS信号を受信したかどうか
+unsigned long lastGpsDataTime = 0;  // 最後にGPSデータを受信した時間
+bool show_raw_gps = false;  // 生のGPSデータを表示するかどうか
+
+// IMU関連の変数
+bool imuInitialized = false;       // IMUが初期化されたかどうか
+bool imuCalibrated = false;        // IMUがキャリブレーションされたかどうか
+bool usingImuForSpeed = false;     // IMUを速度計測に使用しているかどうか
+float imuAccelOffset[3] = {0, 0, 0}; // 加速度オフセット値
+float imuVelocity[3] = {0, 0, 0};  // IMUから推定した速度ベクトル
+float imuSpeed = 0.0f;             // IMUから推定した速度スカラー値
+unsigned long lastImuUpdate = 0;   // 最後のIMU更新時間
 
 void setup() {
-  // For debugging - initialize Serial first
-  Serial.begin(115200);
-  delay(500); // Give serial time to start
-  Serial.println("\n\n=== Urashima Effect Device starting... ===");
+  // Initialize M5 device
+  auto cfg = M5.config();
+  M5.begin(cfg);
   
-  // Initialize M5Unified with auto-detection
-  M5.begin();
-  Serial.println("M5 initialized");
+  // Set up serial communication
+  Serial.begin(115200);
+  Serial.println("Urashima Effect Device Starting...");
   
   // Initialize display
-  // Set initial display content
-  if (M5.Display.width() > 0) {  // Check if display is available
+  if (M5.Display.width() > 0) {
+    Serial.println("Display detected");
+    
+    // Clear screen
+    M5.Display.fillScreen(BLACK);
+    
+    // Check if we're using a small display
     int displayWidth = M5.Display.width();
     int displayHeight = M5.Display.height();
     bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
     
-    M5.Display.setTextSize(1);
-    M5.Display.fillScreen(BLACK);
-    M5.Display.setTextColor(WHITE);
-    
-    // Display cool title - adjusted for small screens
+    // Draw title bar
     M5.Display.fillRect(0, 0, displayWidth, isSmallDisplay ? 20 : 30, NAVY);
     
     if (isSmallDisplay) {
@@ -67,7 +90,7 @@ void setup() {
     // Draw line below title
     M5.Display.drawLine(0, isSmallDisplay ? 20 : 30, displayWidth, isSmallDisplay ? 20 : 30, CYAN);
     
-    // Light speed info with better formatting - adjusted for screen size
+    // Display light speed information
     if (isSmallDisplay) {
       // For small displays, more compact information
       M5.Display.setCursor(50, 22);  // Moved right to avoid overlap with GPS status
@@ -114,6 +137,9 @@ void setup() {
   
   Serial.println("Waiting for GPS data...");
   
+  // Initialize IMU
+  initializeImu();
+  
   last_update = millis();
 }
 
@@ -142,6 +168,11 @@ void loop() {
     }
   }
   
+  // Update IMU data if initialized
+  if (imuInitialized) {
+    updateImuData();
+  }
+  
   // Update screen periodically
   if (millis() - last_update > 500) {  // Reduce update frequency to 500ms
     unsigned long current_millis = millis();
@@ -150,10 +181,8 @@ void loop() {
     // Update device time
     elapsed_device_time += delta_t;
     
-    // Update speed if GPS is valid
-    if (gps.speed.isValid()) {
-      current_speed = gps.speed.kmph();  // Get speed in km/h
-    }
+    // Update speed based on GPS or IMU
+    updateSpeed();
     
     // Calculate relativistic effect
     calculateRelativisticEffect(delta_t);
@@ -434,7 +463,16 @@ void updateDisplay() {
       M5.Display.fillRect(2, yPos, displayWidth-4, 16, BLACK);
       M5.Display.setCursor(2, yPos);
       M5.Display.setTextColor(MAGENTA);
-      M5.Display.print("SPD:");
+      M5.Display.print("SPD");
+      
+      // IMUを使用している場合は表示
+      if (usingImuForSpeed) {
+        M5.Display.setTextColor(YELLOW);
+        M5.Display.print("(IMU)");
+      }
+      
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print(":");
       M5.Display.setTextColor(WHITE);
       M5.Display.printf("%.1f km/h", current_speed);
       M5.Display.setCursor(2, yPos+8);
@@ -444,7 +482,16 @@ void updateDisplay() {
       M5.Display.fillRect(5, yPos, displayWidth-10, 20, BLACK);
       M5.Display.setCursor(5, yPos);
       M5.Display.setTextColor(MAGENTA);
-      M5.Display.print("SPEED: ");
+      M5.Display.print("SPEED");
+      
+      // IMUを使用している場合は表示
+      if (usingImuForSpeed) {
+        M5.Display.setTextColor(YELLOW);
+        M5.Display.print(" (IMU)");
+      }
+      
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print(": ");
       M5.Display.setTextColor(WHITE);
       M5.Display.printf("%.1f km/h", current_speed);
       M5.Display.setCursor(5, yPos+10);
@@ -787,7 +834,16 @@ void forceCompleteRedraw() {
       M5.Display.fillRect(2, yPos, displayWidth-4, 16, BLACK);
       M5.Display.setCursor(2, yPos);
       M5.Display.setTextColor(MAGENTA);
-      M5.Display.print("SPD:");
+      M5.Display.print("SPD");
+      
+      // IMUを使用している場合は表示
+      if (usingImuForSpeed) {
+        M5.Display.setTextColor(YELLOW);
+        M5.Display.print("(IMU)");
+      }
+      
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print(":");
       M5.Display.setTextColor(WHITE);
       M5.Display.printf("%.1f km/h", current_speed);
       M5.Display.setCursor(2, yPos+8);
@@ -797,7 +853,16 @@ void forceCompleteRedraw() {
       M5.Display.fillRect(5, yPos, displayWidth-10, 20, BLACK);
       M5.Display.setCursor(5, yPos);
       M5.Display.setTextColor(MAGENTA);
-      M5.Display.print("SPEED: ");
+      M5.Display.print("SPEED");
+      
+      // IMUを使用している場合は表示
+      if (usingImuForSpeed) {
+        M5.Display.setTextColor(YELLOW);
+        M5.Display.print(" (IMU)");
+      }
+      
+      M5.Display.setTextColor(MAGENTA);
+      M5.Display.print(": ");
       M5.Display.setTextColor(WHITE);
       M5.Display.printf("%.1f km/h", current_speed);
       M5.Display.setCursor(5, yPos+10);
@@ -946,5 +1011,140 @@ void forceCompleteRedraw() {
     M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
     M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
     */
+  }
+}
+
+// Initialize IMU
+void initializeImu() {
+  // IMUの初期化
+  if (M5.Imu.begin()) {
+    imuInitialized = true;
+    Serial.println("IMU initialized successfully");
+    
+    // IMUのキャリブレーションを開始
+    calibrateImu();
+  } else {
+    Serial.println("Failed to initialize IMU");
+    imuInitialized = false;
+  }
+}
+
+// IMUのキャリブレーション
+void calibrateImu() {
+  if (!imuInitialized) return;
+  
+  Serial.println("Starting IMU calibration...");
+  Serial.println("Keep the device still for 5 seconds");
+  
+  // キャリブレーション開始を表示
+  int displayWidth = M5.Display.width();
+  int displayHeight = M5.Display.height();
+  bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
+  
+  M5.Display.fillRect(0, isSmallDisplay ? 40 : 60, displayWidth, 20, BLUE);
+  M5.Display.setTextColor(WHITE, BLUE);
+  M5.Display.setCursor(5, isSmallDisplay ? 40 : 60);
+  M5.Display.print("IMU Calibrating...");
+  
+  // オフセット計算用の変数
+  float accelSumX = 0.0f, accelSumY = 0.0f, accelSumZ = 0.0f;
+  int sampleCount = 0;
+  
+  // キャリブレーション時間の間、加速度データを収集
+  unsigned long startTime = millis();
+  while (millis() - startTime < IMU_CALIBRATION_TIME) {
+    float accelX, accelY, accelZ;
+    if (M5.Imu.getAccel(&accelX, &accelY, &accelZ)) {
+      accelSumX += accelX;
+      accelSumY += accelY;
+      accelSumZ += accelZ;
+      sampleCount++;
+    }
+    delay(10);
+  }
+  
+  // 平均値を計算してオフセットとして設定
+  if (sampleCount > 0) {
+    imuAccelOffset[0] = accelSumX / sampleCount;
+    imuAccelOffset[1] = accelSumY / sampleCount;
+    imuAccelOffset[2] = accelSumZ / sampleCount;
+    
+    // 重力加速度（Z軸）は補正する（静止時は約1Gの重力がかかっている）
+    imuAccelOffset[2] -= 1.0f;
+    
+    imuCalibrated = true;
+    Serial.printf("IMU calibration complete. Offsets: X=%.3f Y=%.3f Z=%.3f\n", 
+                 imuAccelOffset[0], imuAccelOffset[1], imuAccelOffset[2]);
+  } else {
+    Serial.println("IMU calibration failed - no samples collected");
+  }
+  
+  // キャリブレーション終了を表示
+  M5.Display.fillRect(0, isSmallDisplay ? 40 : 60, displayWidth, 20, BLACK);
+}
+
+// IMUデータの更新
+void updateImuData() {
+  if (!imuInitialized || !imuCalibrated) return;
+  
+  float accelX, accelY, accelZ;
+  if (M5.Imu.getAccel(&accelX, &accelY, &accelZ)) {
+    // オフセットを適用
+    accelX -= imuAccelOffset[0];
+    accelY -= imuAccelOffset[1];
+    accelZ -= imuAccelOffset[2];
+    
+    // 加速度から速度を推定
+    unsigned long currentTime = millis();
+    if (lastImuUpdate > 0) {
+      float deltaT = (currentTime - lastImuUpdate) / 1000.0f; // 秒単位
+      
+      // 加速度から速度を計算（積分）
+      // 閾値以下の加速度はノイズとして無視
+      if (abs(accelX) > IMU_ACCEL_THRESHOLD) {
+        imuVelocity[0] += accelX * deltaT * 9.81f; // 加速度をm/s^2に変換
+      }
+      if (abs(accelY) > IMU_ACCEL_THRESHOLD) {
+        imuVelocity[1] += accelY * deltaT * 9.81f;
+      }
+      if (abs(accelZ) > IMU_ACCEL_THRESHOLD) {
+        imuVelocity[2] += accelZ * deltaT * 9.81f;
+      }
+      
+      // 速度の減衰（摩擦や空気抵抗をシミュレート）
+      imuVelocity[0] *= IMU_SPEED_DECAY;
+      imuVelocity[1] *= IMU_SPEED_DECAY;
+      imuVelocity[2] *= IMU_SPEED_DECAY;
+      
+      // 3次元速度ベクトルの大きさを計算
+      imuSpeed = sqrt(imuVelocity[0]*imuVelocity[0] + 
+                      imuVelocity[1]*imuVelocity[1] + 
+                      imuVelocity[2]*imuVelocity[2]);
+      
+      // m/sからkm/hに変換
+      imuSpeed *= 3.6f;
+    }
+    
+    lastImuUpdate = currentTime;
+  }
+}
+
+// GPSまたはIMUに基づいて速度を更新
+void updateSpeed() {
+  // GPSが有効な場合はGPSの速度を使用
+  if (gps.speed.isValid() && (millis() - lastGpsDataTime < 5000)) {
+    current_speed = gps.speed.kmph();
+    usingImuForSpeed = false;
+  } 
+  // GPSが無効でIMUが利用可能な場合
+  else if (USE_IMU_WHEN_GPS_LOST && imuInitialized && imuCalibrated) {
+    current_speed = imuSpeed;
+    usingImuForSpeed = true;
+  } 
+  // どちらも利用できない場合
+  else {
+    // 速度を維持するか、徐々に減衰させる
+    current_speed *= 0.95; // 徐々に減衰
+    usingImuForSpeed = false;
   }
 }
