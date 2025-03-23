@@ -5,11 +5,11 @@
 
 // Constants
 const double ORIGINAL_LIGHT_SPEED = 299792.458;  // Actual speed of light (km/s)
-const double MODIFIED_LIGHT_SPEED = 0.3;       // Modified speed of light (km/s)
+const double MODIFIED_LIGHT_SPEED = 0.03;       // Modified speed of light (km/s)
 
 // GPS connection pin settings
-#define GPS_RX_PIN 1      // ATOMS3R GPIO1 for GPS RX
-#define GPS_TX_PIN 2      // ATOMS3R GPIO2 for GPS TX
+#define GPS_RX_PIN -1     // No specific pin for GPS RX (using UART RX)
+#define GPS_TX_PIN 5      // ATOMS3R GPIO5 for GPS TX
 
 // IMU related constants
 #define USE_IMU_WHEN_GPS_LOST true  // Use IMU when GPS signal is lost
@@ -24,10 +24,6 @@ const double MODIFIED_LIGHT_SPEED = 0.3;       // Modified speed of light (km/s)
 #define GPS_IMU_FUSION_WEIGHT 0.2f  // Weight for sensor fusion (0.0 = IMU only, 1.0 = GPS only)
 #define GPS_VALID_TIMEOUT 5000      // Time in ms after which GPS data is considered stale
 #define SAVE_DATA_INTERVAL 60000    // Interval to save data to persistent storage (60 seconds)
-
-// GPS related constants
-#define GPS_RX_PIN 1      // ATOMS3R GPIO1 for GPS RX
-#define GPS_TX_PIN 2      // ATOMS3R GPIO2 for GPS TX
 
 // TinyGPS++ object
 TinyGPSPlus gps;
@@ -134,7 +130,7 @@ void setup() {
       M5.Display.setTextColor(YELLOW);
       M5.Display.print("VIRT:");
       M5.Display.setTextColor(WHITE);
-      M5.Display.println("0.3");
+      M5.Display.println("0.03");
       
       // Draw another line
       M5.Display.drawLine(0, 38, displayWidth, 38, CYAN);
@@ -150,7 +146,7 @@ void setup() {
       M5.Display.setTextColor(YELLOW);
       M5.Display.print("VIRT C: ");
       M5.Display.setTextColor(WHITE);
-      M5.Display.println("0.3 km/s");
+      M5.Display.println("0.03 km/s");
       
       // Draw another line
       M5.Display.drawLine(0, 55, displayWidth, 55, CYAN);
@@ -164,7 +160,7 @@ void setup() {
   
   // Initialize GPS
   Serial.println("Initializing GPS");
-  GPSSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  GPSSerial.begin(9600, SERIAL_8N1, -1, GPS_TX_PIN);
   
   Serial.println("Waiting for GPS data...");
   
@@ -927,7 +923,7 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(YELLOW);
       M5.Display.print("VIRT:");
       M5.Display.setTextColor(WHITE);
-      M5.Display.println("0.3");
+      M5.Display.println("0.03");
       
       // Draw another line
       M5.Display.drawLine(0, 38, displayWidth, 38, CYAN);
@@ -943,7 +939,7 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(YELLOW);
       M5.Display.print("VIRT C: ");
       M5.Display.setTextColor(WHITE);
-      M5.Display.println("0.3 km/s");
+      M5.Display.println("0.03 km/s");
       
       // Draw another line
       M5.Display.drawLine(0, 55, displayWidth, 55, CYAN);
