@@ -33,22 +33,40 @@ This ancient tale presents a fascinating parallel to Einstein's relativistic tim
 - M5Stack AtomicBase GPS
 - microSD card (optional, for data logging)
 
+## Hardware Connection
+
+The AtomS3R and AtomicBase GPS have specific pin connections that must be properly configured:
+
+### GPS Connection
+- GPS_TX_PIN: 5 (AtomS3R GPIO5 for receiving data from GPS)
+- GPS_RX_PIN: -1 (Not connected)
+
+### SD Card Connection (AtomS3R with AtomicBase GPS)
+- SD_MOSI_PIN: 6 (MOSI pin G6)
+- SD_MISO_PIN: 8 (MISO pin G8)
+- SD_SCK_PIN: 7 (CLK pin G7)
+- SD_CS_PIN: 38 (CS pin G38)
+
+**Note**: It's crucial to use GPIO38 for the SD card CS pin to avoid conflicts with the GPS module on GPIO5.
+
 ## Software Requirements
 
 - Arduino IDE
 - Required libraries:
-  - M5Unified
+  - M5Unified (v0.1.6 or later)
   - TinyGPS++
   - SPI
   - SD
   - FS
+  - Preferences
 
 ## Installation
 
 1. Clone or download this repository
-2. Open `Urashima_Effect_Device_Arduino.ino` in the Arduino IDE
-3. Select the M5Stack AtomS3R board
-4. Compile and upload to your device
+2. Open `Urashima_Effect_Device.ino` in the Arduino IDE
+3. Install all required libraries through the Arduino Library Manager
+4. Select the M5Stack AtomS3R board (m5stack:esp32:m5stack_atoms3r)
+5. Compile and upload to your device
 
 ## Usage
 
@@ -88,31 +106,46 @@ The following graph illustrates the relationship between speed and time dilation
 As shown in the graph, time dilation effects become increasingly pronounced as your speed approaches the virtual light speed of 108 km/h:
 
 - At 30 km/h: Time passes at approximately 0.96× normal rate (γ ≈ 1.04)
-- At 60 km/h: Time passes at approximately 0.83× normal rate (γ ≈ 1.20)
-- At 90 km/h: Time passes at approximately 0.55× normal rate (γ ≈ 1.81)
-- At 100 km/h: Time passes at approximately 0.38× normal rate (γ ≈ 2.65)
-- At 107.5 km/h: Time passes at approximately 0.10× normal rate (γ ≈ 10.40)
+- At 60 km/h: Time passes at approximately 0.87× normal rate (γ ≈ 1.15)
+- At 90 km/h: Time passes at approximately 0.64× normal rate (γ ≈ 1.56)
+- At 100 km/h: Time passes at approximately 0.48× normal rate (γ ≈ 2.08)
 
-When γ = 2, time for a moving observer passes at half the rate of a stationary observer. This occurs at approximately 93.5 km/h with our virtual light speed setting.
+## Troubleshooting
 
-## Technical Details
+### Display Not Updating
+If the display is not updating properly when pressing the button:
+- Ensure you're using the correct pin configurations for both GPS and SD card
+- Make sure SD_CS_PIN is set to 38 to avoid conflicts with GPS on GPIO5
+- Check that the button handling uses `M5.BtnA.wasClicked()` instead of `wasPressed()`
 
-- GPS update rate: 1Hz
-- Accelerometer sampling rate: As fast as possible (device-dependent)
-- GPS-IMU fusion weight: 0.2 (20% GPS, 80% IMU when both are available)
-- GPS validity timeout: 5 seconds (falls back to IMU-only after this period)
-- Time dilation calculation: Lorentz factor γ = 1/√(1-(v²/c²))
-- Data logging interval: 1 second
-- Display modes: Main, GPS Raw, IMU Raw (cycle with short button press)
+### SD Card Not Working
+If the SD card is not being detected or causing display issues:
+- Verify the SD card is properly formatted (FAT32)
+- Ensure the SD card pins are correctly configured:
+  ```
+  SD_MOSI_PIN: 6
+  SD_MISO_PIN: 8
+  SD_SCK_PIN: 7
+  SD_CS_PIN: 38
+  ```
+- Make sure the SPI initialization is done with `SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN)`
+- Use `SD.begin(SD_CS_PIN)` without additional parameters
 
-## License
-
-MIT License
+### GPS Not Receiving Data
+- Ensure GPS_TX_PIN is set to 5
+- Move to an area with better GPS reception
+- Check the serial connection settings (9600 baud rate)
 
 ## Contributing
 
-Pull requests and feature suggestions are welcome. For major changes, please open an issue first to discuss what you would like to change.
+Contributions to the Urashima Effect Device project are welcome! Please feel free to submit pull requests or open issues to improve the device's functionality or documentation.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 
-This project would not have been possible without the support of the M5Stack community and the open-source hardware/software ecosystem.
+- Einstein's Theory of Special Relativity
+- The Japanese folktale of Urashima Taro
+- M5Stack for their excellent hardware and software ecosystem

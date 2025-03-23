@@ -1,7 +1,8 @@
 #include <M5Unified.h>    // Unified library for M5Stack devices
 #include <TinyGPS++.h>    // GPS parsing library
 #include <SPI.h>          // SPI library
-#include <Preferences.h>  // 不揮発性メモリ用のライブラリ
+#include <Preferences.h>  // Library for non-volatile memory
+#include <SD.h>           // SD card library
 
 // Constants
 const double ORIGINAL_LIGHT_SPEED = 299792.458;  // Actual speed of light (km/s)
@@ -10,6 +11,14 @@ const double MODIFIED_LIGHT_SPEED = 0.03;       // Modified speed of light (km/s
 // GPS connection pin settings
 #define GPS_RX_PIN 5     // ATOMS3R GPIO5 for GPS TX (receiving data from GPS)
 #define GPS_TX_PIN -1    // GPS RX is not connected
+
+// SD Card pin settings for AtomS3R with AtomicBase GPS
+#define SD_MOSI_PIN 6    // MOSI pin (G6) for SD card
+#define SD_MISO_PIN 8    // MISO pin (G8) for SD card
+#define SD_SCK_PIN 7     // CLK pin (G7) for SD card
+#define SD_CS_PIN 38     // CS pin for SD card (M5AtomS3R)
+#define SD_LOG_INTERVAL 5000  // Log data every 5 seconds
+#define SD_LOG_FILENAME "/urashima_log.csv"  // Log file name - must start with /
 
 // IMU related constants
 #define USE_IMU_WHEN_GPS_LOST true  // Use IMU when GPS signal is lost
@@ -72,6 +81,11 @@ bool isAtRest = false;
 float gpsImuFusedSpeed = 0;        // Speed calculated from GPS-IMU fusion
 float lastValidGpsSpeed = 0;       // Last valid GPS speed reading
 bool hasValidGpsSpeed = false;     // Whether we have a valid GPS speed reading
+
+// SD card related variables
+bool sdCardInitialized = false;
+File logFile;
+unsigned long lastLogTime = 0;
 
 void setup() {
   // Initialize M5 device
@@ -182,6 +196,10 @@ void setup() {
   // Initialize IMU
   initializeImu();
   
+  // Initialize SD card with explicit SPI settings
+  SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+  initSDCard();
+  
   // Initialize persistent storage
   preferences.begin("urashima", false);
   
@@ -234,7 +252,7 @@ void loop() {
   }
   
   // Handle button presses - cycle through display modes
-  if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed() || M5.BtnC.wasPressed()) {
+  if (M5.BtnA.wasClicked()) {  // Using wasClicked instead of wasPressed for better response
     // Switch to next display mode
     display_mode = (display_mode + 1) % 3;  // Cycle through 0→1→2→0...
     
@@ -258,7 +276,12 @@ void loop() {
     // Clear the entire screen before redrawing to prevent display corruption
     M5.Display.fillScreen(BLACK);
     
+    // Reset display cache and force complete redraw
+    resetDisplayCache();
     forceCompleteRedraw();
+    
+    // Call updateDisplay directly to ensure immediate update
+    updateDisplay();
   }
   
   // Handle button long press for time reset
@@ -392,6 +415,12 @@ void loop() {
     
     last_update = current_millis;
   }
+  
+  // Log data to SD card periodically
+  if (sdCardInitialized && (millis() - lastLogTime > SD_LOG_INTERVAL)) {
+    logDataToSD();
+    lastLogTime = millis();
+  }
 }
 
 // Calculate relativistic effect
@@ -437,6 +466,7 @@ void updateDisplay() {
   static int prev_gps_status = -1;
   static double prev_speed = -1.0;
   static double prev_time_dilation = -1.0;
+  static double prev_time_diff = -1.0;
   
   if (!gpsDataReceived) {
     current_gps_status = 0; // No connection
@@ -871,6 +901,21 @@ void updateDisplay() {
   M5.Display.setTextColor(WHITE);
   M5.Display.print(total_distance, 2);
   M5.Display.print(" km");
+  
+  // Display SD card status
+  int sdYPos = isSmallDisplay ? 115 : 160;
+  M5.Display.fillRect(0, sdYPos, displayWidth, 10, BLACK);
+  M5.Display.setCursor(isSmallDisplay ? 4 : 10, sdYPos);
+  M5.Display.setTextColor(GREEN);
+  M5.Display.print("SD: ");
+  
+  if (sdCardInitialized) {
+    M5.Display.setTextColor(GREEN);
+    M5.Display.print("OK");
+  } else {
+    M5.Display.setTextColor(RED);
+    M5.Display.print("FAIL");
+  }
 }
 
 // Reset time calculations
@@ -1628,4 +1673,100 @@ void loadSavedData() {
   
   Serial.printf("Loaded from persistent storage: Distance=%.2f km, Last Speed=%.1f km/h\n", 
                total_distance, lastValidGpsSpeed);
+}
+
+// Initialize SD card
+void initSDCard() {
+  Serial.println("Initializing SD card...");
+  
+  // Initialize SD card with explicit SPI settings
+  SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+  if (!SD.begin(SD_CS_PIN)) {
+    Serial.println("SD card initialization failed!");
+    sdCardInitialized = false;
+  } else {
+    Serial.println("SD card initialized successfully.");
+    sdCardInitialized = true;
+    
+    // Get SD card type and size
+    uint8_t cardType = SD.cardType();
+    if (cardType == CARD_NONE) {
+      Serial.println("No SD card attached");
+      sdCardInitialized = false;
+      return;
+    }
+    
+    // Print card type
+    Serial.print("SD Card Type: ");
+    if (cardType == CARD_MMC) {
+      Serial.println("MMC");
+    } else if (cardType == CARD_SD) {
+      Serial.println("SDSC");
+    } else if (cardType == CARD_SDHC) {
+      Serial.println("SDHC");
+    } else {
+      Serial.println("UNKNOWN");
+    }
+    
+    // Print card size
+    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+    Serial.printf("SD Card Size: %lluMB\n", cardSize);
+    
+    // Create log file with headers if it doesn't exist
+    if (!SD.exists(SD_LOG_FILENAME)) {
+      logFile = SD.open(SD_LOG_FILENAME, FILE_WRITE);
+      if (logFile) {
+        logFile.println("timestamp,device_time,relativistic_time,time_difference,speed,latitude,longitude");
+        logFile.close();
+        Serial.println("Created new log file with headers");
+      } else {
+        Serial.println("Failed to create log file");
+      }
+    } else {
+      // Add a separator line to indicate a new session
+      logFile = SD.open(SD_LOG_FILENAME, FILE_APPEND);
+      if (logFile) {
+        logFile.println("--- NEW SESSION ---");
+        logFile.close();
+        Serial.println("Added session separator to log file");
+      } else {
+        Serial.println("Failed to open log file for writing");
+      }
+    }
+  }
+}
+
+// Log data to SD card
+void logDataToSD() {
+  if (!sdCardInitialized) return;
+  
+  // Open log file for appending
+  logFile = SD.open(SD_LOG_FILENAME, FILE_APPEND);
+  if (logFile) {
+    // Format: timestamp,device_time,relativistic_time,time_difference,speed,latitude,longitude
+    logFile.print(millis());
+    logFile.print(",");
+    logFile.print(elapsed_device_time);
+    logFile.print(",");
+    logFile.print(elapsed_relativistic_time);
+    logFile.print(",");
+    logFile.print(time_difference);
+    logFile.print(",");
+    logFile.print(current_speed);
+    logFile.print(",");
+    
+    // Add GPS data if available
+    if (gpsDataReceived && gps.location.isValid()) {
+      logFile.print(gps.location.lat(), 6);
+      logFile.print(",");
+      logFile.println(gps.location.lng(), 6);
+    } else {
+      logFile.println(",,");  // Empty fields for lat/lng
+    }
+    
+    logFile.close();
+    Serial.println("Data logged to SD card");
+  } else {
+    Serial.println("Failed to open log file for writing");
+  }
 }
