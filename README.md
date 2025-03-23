@@ -1,6 +1,6 @@
 # Urashima Effect Device
 
-![Urashima Effect Device](https://github.com/kennel-org/urashima-effect-device/raw/master/images/device_photo.jpg)
+![Urashima Effect Device](./images/device_photo.jpg)
 
 ## Overview
 
@@ -101,7 +101,7 @@ Where:
 
 The following graph illustrates the relationship between speed and time dilation in the Urashima Effect Device:
 
-![Time Dilation Graph](images/lorentz_effect_plot.png)
+![Time Dilation Graph](./images/lorentz_effect_plot.png)
 
 As shown in the graph, time dilation effects become increasingly pronounced as your speed approaches the virtual light speed of 108 km/h:
 
