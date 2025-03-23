@@ -684,6 +684,29 @@ void forceCompleteRedraw() {
     int displayHeight = M5.Display.height();
     bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
     
+    // タイトルバーを再描画
+    M5.Display.fillRect(0, 0, displayWidth, isSmallDisplay ? 20 : 30, NAVY);
+    
+    if (isSmallDisplay) {
+      // Smaller title for 128x128 displays - centered
+      M5.Display.setTextSize(1);
+      int titleX = (displayWidth - 15 * 6) / 2; // Centering "URASHIMA EFFECT"
+      M5.Display.setCursor(titleX > 0 ? titleX : 0, 7);
+      M5.Display.setTextColor(CYAN);
+      M5.Display.println("URASHIMA EFFECT");
+    } else {
+      // Larger title for bigger displays
+      M5.Display.setTextSize(2);
+      int titleX = (displayWidth - 17 * 12) / 2; // Centering "URASHIMA EFFECT"
+      M5.Display.setCursor(titleX > 0 ? titleX : 0, 5);
+      M5.Display.setTextColor(CYAN);
+      M5.Display.println("URASHIMA EFFECT");
+    }
+    M5.Display.setTextSize(1);
+    
+    // Draw line below title
+    M5.Display.drawLine(0, isSmallDisplay ? 20 : 30, displayWidth, isSmallDisplay ? 20 : 30, CYAN);
+    
     // 光速情報を再描画
     if (isSmallDisplay) {
       // For small displays, more compact information
