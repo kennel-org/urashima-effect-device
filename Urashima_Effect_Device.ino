@@ -10,41 +10,45 @@ const double MODIFIED_LIGHT_SPEED = 0.3;       // Modified speed of light (km/s)
 #define GPS_RX_PIN 1      // ATOMS3R GPIO1 for GPS RX
 #define GPS_TX_PIN 2      // ATOMS3R GPIO2 for GPS TX
 
-// IMU関連の定数
-#define USE_IMU_WHEN_GPS_LOST true  // GPSが捕捉できない場合にIMUを使用するかどうか
-#define IMU_ACCEL_THRESHOLD 0.1f    // 加速度閾値（これ以上の加速度を検出した場合に移動と判断）
-#define IMU_CALIBRATION_TIME 5000   // IMUキャリブレーション時間（ミリ秒）
-#define IMU_SPEED_DECAY 0.95f       // 速度減衰係数（摩擦や空気抵抗をシミュレート）
+// IMU related constants
+#define USE_IMU_WHEN_GPS_LOST true  // Use IMU when GPS signal is lost
+#define IMU_ACCEL_THRESHOLD 0.1f    // Acceleration threshold (movement detected above this value)
+#define IMU_CALIBRATION_TIME 5000   // IMU calibration time (milliseconds)
+#define IMU_SPEED_DECAY 0.95f       // Speed decay factor (simulates friction and air resistance)
 
-// GPS関連の定数
+// GPS related constants
 #define GPS_RX_PIN 1      // ATOMS3R GPIO1 for GPS RX
 #define GPS_TX_PIN 2      // ATOMS3R GPIO2 for GPS TX
 
-// TinyGPS++オブジェクト
+// TinyGPS++ object
 TinyGPSPlus gps;
 
-// ソフトウェアシリアル
-HardwareSerial GPSSerial(1);  // UART1を使用
+// Hardware serial
+HardwareSerial GPSSerial(1);  // Using UART1
 
-// グローバル変数
-double current_speed = 0.0;  // 現在の速度 (km/h)
-double time_dilation = 1.0;  // 時間膨張率
-double elapsed_device_time = 0.0;  // 経過したデバイス時間（秒）
-double elapsed_relativistic_time = 0.0;  // 経過した相対論的時間（秒）
-double time_difference = 0.0;  // 時間差（秒）
-unsigned long last_update = 0;  // 最後の更新時間
-bool gpsDataReceived = false;  // GPS信号を受信したかどうか
-unsigned long lastGpsDataTime = 0;  // 最後にGPSデータを受信した時間
-bool show_raw_gps = false;  // 生のGPSデータを表示するかどうか
+// Global variables
+double current_speed = 0.0;  // Current speed (km/h)
+double time_dilation = 1.0;  // Time dilation factor
+double elapsed_device_time = 0.0;  // Elapsed device time (seconds)
+double elapsed_relativistic_time = 0.0;  // Elapsed relativistic time (seconds)
+double time_difference = 0.0;  // Time difference (seconds)
+unsigned long last_update = 0;  // Last update time
+bool gpsDataReceived = false;  // Whether GPS signal has been received
+unsigned long lastGpsDataTime = 0;  // Last time GPS data was received
+bool show_raw_gps = false;  // Whether to show raw GPS data (kept for compatibility)
+bool show_raw_imu = false;  // Whether to show raw IMU data (kept for compatibility)
+int display_mode = 0;  // Display mode (0:Main, 1:GPS, 2:IMU)
 
-// IMU関連の変数
-bool imuInitialized = false;       // IMUが初期化されたかどうか
-bool imuCalibrated = false;        // IMUがキャリブレーションされたかどうか
-bool usingImuForSpeed = false;     // IMUを速度計測に使用しているかどうか
-float imuAccelOffset[3] = {0, 0, 0}; // 加速度オフセット値
-float imuVelocity[3] = {0, 0, 0};  // IMUから推定した速度ベクトル
-float imuSpeed = 0.0f;             // IMUから推定した速度スカラー値
-unsigned long lastImuUpdate = 0;   // 最後のIMU更新時間
+// IMU related variables
+bool imuInitialized = false;       // Whether IMU has been initialized
+bool imuCalibrated = false;        // Whether IMU has been calibrated
+bool usingImuForSpeed = false;     // Whether using IMU for speed measurement
+float imuAccelOffset[3] = {0, 0, 0}; // Acceleration offset values
+float imuVelocity[3] = {0, 0, 0};  // Velocity vector estimated from IMU
+float imuSpeed = 0.0f;             // Scalar speed value estimated from IMU
+unsigned long lastImuUpdate = 0;   // Last IMU update time
+float currentAccelX = 0.0f, currentAccelY = 0.0f, currentAccelZ = 0.0f; // Current acceleration values (for display)
+float currentGyroX = 0.0f, currentGyroY = 0.0f, currentGyroZ = 0.0f;    // Current gyroscope values (for display)
 
 void setup() {
   // Initialize M5 device
@@ -173,6 +177,34 @@ void loop() {
     updateImuData();
   }
   
+  // Handle button presses - cycle through display modes
+  if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed() || M5.BtnC.wasPressed()) {
+    // Switch to next display mode
+    display_mode = (display_mode + 1) % 3;  // Cycle through 0→1→2→0...
+    
+    // Update legacy variables for compatibility
+    show_raw_gps = (display_mode == 1);
+    show_raw_imu = (display_mode == 2);
+    
+    // Output display mode change to serial
+    switch(display_mode) {
+      case 0:
+        Serial.println("Display Mode: Main");
+        break;
+      case 1:
+        Serial.println("Display Mode: GPS Raw Data");
+        break;
+      case 2:
+        Serial.println("Display Mode: IMU Raw Data");
+        break;
+    }
+    
+    // Clear the entire screen before redrawing to prevent display corruption
+    M5.Display.fillScreen(BLACK);
+    
+    forceCompleteRedraw();
+  }
+  
   // Update screen periodically
   if (millis() - last_update > 500) {  // Reduce update frequency to 500ms
     unsigned long current_millis = millis();
@@ -191,64 +223,6 @@ void loop() {
     updateDisplay();
     
     last_update = current_millis;
-  }
-  
-  // Reset with button pressed - using M5Unified's BtnA
-  if (M5.BtnA.wasPressed()) {
-    // Toggle between normal display and raw GPS data display
-    show_raw_gps = !show_raw_gps;
-    
-    // Visual feedback for button press
-    int displayWidth = M5.Display.width();
-    int displayHeight = M5.Display.height();
-    bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
-    
-    // Display button press notification
-    M5.Display.fillRect(0, isSmallDisplay ? 40 : 60, displayWidth, 10, BLUE);
-    M5.Display.setTextColor(WHITE, BLUE);
-    M5.Display.setCursor(5, isSmallDisplay ? 40 : 60);
-    if (show_raw_gps) {
-      M5.Display.print("GPS RAW DATA: ON");
-      Serial.println("Button A pressed - GPS raw data display ON");
-    } else {
-      M5.Display.print("GPS RAW DATA: OFF");
-      Serial.println("Button A pressed - GPS raw data display OFF");
-    }
-    
-    // Clear notification after 500ms (shorter delay)
-    delay(500);
-    
-    // Clear screen completely
-    M5.Display.fillScreen(BLACK);
-    
-    // Redraw title and header
-    M5.Display.fillRect(0, 0, displayWidth, isSmallDisplay ? 20 : 30, NAVY);
-    
-    if (isSmallDisplay) {
-      // Smaller title for 128x128 displays - centered
-      M5.Display.setTextSize(1);
-      int titleX = (displayWidth - 15 * 6) / 2; // Centering "URASHIMA EFFECT"
-      M5.Display.setCursor(titleX > 0 ? titleX : 0, 7);
-      M5.Display.setTextColor(CYAN);
-      M5.Display.println("URASHIMA EFFECT");
-    } else {
-      // Larger title for bigger displays
-      M5.Display.setTextSize(2);
-      int titleX = (displayWidth - 17 * 12) / 2; // Centering "URASHIMA EFFECT"
-      M5.Display.setCursor(titleX > 0 ? titleX : 0, 5);
-      M5.Display.setTextColor(CYAN);
-      M5.Display.println("URASHIMA EFFECT");
-    }
-    M5.Display.setTextSize(1);
-    
-    // Draw line below title
-    M5.Display.drawLine(0, isSmallDisplay ? 20 : 30, displayWidth, isSmallDisplay ? 20 : 30, CYAN);
-    
-    // Reset static variables to force redraw
-    resetDisplayCache();
-    
-    // Force immediate complete redraw
-    forceCompleteRedraw();
   }
 }
 
@@ -280,54 +254,45 @@ void calculateRelativisticEffect(double delta_t) {
 
 // Update display
 void updateDisplay() {
-  if (M5.Display.width() <= 0) return;  // Skip if no display available
+  // Check if display is available
+  if (M5.Display.width() == 0) {
+    return;
+  }
   
-  // Check if we're using a small display
+  // Get display dimensions
   int displayWidth = M5.Display.width();
   int displayHeight = M5.Display.height();
   bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
   
-  // Use static variables to track previous values and reduce flicker
-  static double prev_speed = -1;
-  static double prev_dilation = -1;
-  static double prev_device_time = -1;
-  static double prev_relative_time = -1;
-  static double prev_difference = -1;
-  static int prev_gps_status = -1;
-  static bool line_drawn = false;
-  static bool reset_shown = false;
-  
+  // Calculate GPS status
   int current_gps_status = 0;
-  if (!gpsDataReceived) current_gps_status = 0;  // Not Connected
-  else if (millis() - lastGpsDataTime > 5000) current_gps_status = 1;  // No Signal
-  else if (gps.location.isValid()) current_gps_status = 3;  // Connected
-  else current_gps_status = 2;  // Acquiring
-
-  // If showing raw GPS data, display that instead of the normal UI
-  if (show_raw_gps) {
-    // Clear the main content area (preserve the title bar)
+  static int prev_gps_status = -1;
+  static double prev_speed = -1.0;
+  static double prev_time_dilation = -1.0;
+  static double prev_time_diff = -1.0;
+  
+  if (!gpsDataReceived) {
+    current_gps_status = 0; // No connection
+  } else if (millis() - lastGpsDataTime > 5000) {
+    current_gps_status = 1; // No signal (timeout)
+  } else if (!gps.location.isValid() || !gps.speed.isValid()) {
+    current_gps_status = 2; // Acquiring
+  } else {
+    current_gps_status = 3; // Connected with valid data
+  }
+  
+  // Update display based on display mode
+  if (display_mode == 1 || show_raw_gps) {  // GPS raw data display mode
+    // Clear the main area (below the title)
     int startY = isSmallDisplay ? 21 : 31;
     M5.Display.fillRect(0, startY, displayWidth, displayHeight - startY, BLACK);
     
-    // Display GPS raw data
     M5.Display.setTextColor(GREEN);
     M5.Display.setCursor(2, startY + 2);
-    M5.Display.print("GPS RAW DATA");
-    
+    M5.Display.println("RAW GPS DATA:");
     M5.Display.setTextColor(WHITE);
+    
     int y = startY + 12;
-    
-    // GPS Status - more compact for small screens
-    M5.Display.setCursor(2, y);
-    M5.Display.print("Status:");
-    switch(current_gps_status) {
-      case 0: M5.Display.setTextColor(RED); M5.Display.print("NO CONN"); break;
-      case 1: M5.Display.setTextColor(YELLOW); M5.Display.print("NO SIG"); break;
-      case 2: M5.Display.setTextColor(BLUE); M5.Display.print("ACQUIR"); break;
-      case 3: M5.Display.setTextColor(GREEN); M5.Display.print("CONN"); break;
-    }
-    M5.Display.setTextColor(WHITE);
-    y += 8; // Reduced spacing
     
     // Satellites
     M5.Display.setCursor(2, y);
@@ -337,9 +302,9 @@ void updateDisplay() {
     } else {
       M5.Display.print("--");
     }
-    y += 8; // Reduced spacing
+    y += 8;
     
-    // Location - more compact
+    // Location
     M5.Display.setCursor(2, y);
     M5.Display.print("Lat:");
     if (gps.location.isValid()) {
@@ -347,7 +312,7 @@ void updateDisplay() {
     } else {
       M5.Display.print("--");
     }
-    y += 8; // Reduced spacing
+    y += 8;
     
     M5.Display.setCursor(2, y);
     M5.Display.print("Lng:");
@@ -356,7 +321,7 @@ void updateDisplay() {
     } else {
       M5.Display.print("--");
     }
-    y += 8; // Reduced spacing
+    y += 8;
     
     // Altitude
     M5.Display.setCursor(2, y);
@@ -367,7 +332,7 @@ void updateDisplay() {
     } else {
       M5.Display.print("--");
     }
-    y += 8; // Reduced spacing
+    y += 8;
     
     // Speed
     M5.Display.setCursor(2, y);
@@ -378,7 +343,7 @@ void updateDisplay() {
     } else {
       M5.Display.print("--");
     }
-    y += 8; // Reduced spacing
+    y += 8;
     
     // Course
     M5.Display.setCursor(2, y);
@@ -389,14 +354,11 @@ void updateDisplay() {
     } else {
       M5.Display.print("--");
     }
-    y += 8; // Reduced spacing
+    y += 8;
     
-    // Date & Time - combined to save space
+    // Date & Time
     M5.Display.setCursor(2, y);
-    M5.Display.print("Date/Time:");
-    y += 8; // Reduced spacing
-    
-    M5.Display.setCursor(2, y);
+    M5.Display.print("Time:");
     if (gps.date.isValid() && gps.time.isValid()) {
       char dateTimeStr[20];
       sprintf(dateTimeStr, "%04d-%02d-%02d %02d:%02d:%02d", 
@@ -416,6 +378,78 @@ void updateDisplay() {
     } else {
       M5.Display.print("--");
     }
+    
+    return; // Skip the normal display update
+  }
+  
+  // Display raw IMU data if requested
+  if (display_mode == 2 || show_raw_imu) {  // IMU raw data display mode
+    // Clear the main area (below the title)
+    int startY = isSmallDisplay ? 21 : 31;
+    M5.Display.fillRect(0, startY, displayWidth, displayHeight - startY, BLACK);
+    
+    M5.Display.setTextColor(MAGENTA);
+    M5.Display.setCursor(2, startY + 2);
+    M5.Display.println("RAW IMU DATA:");
+    M5.Display.setTextColor(WHITE);
+    
+    int y = startY + 12;
+    
+    // Accelerometer data
+    M5.Display.setTextColor(YELLOW);
+    M5.Display.setCursor(2, y);
+    M5.Display.println("Accelerometer (G):");
+    M5.Display.setTextColor(WHITE);
+    y += 10;
+    
+    // Display X and Y on the same line
+    M5.Display.setCursor(2, y);
+    M5.Display.printf("X: %.3f  Y: %.3f", currentAccelX, currentAccelY);
+    y += 10;
+    
+    // Display Z on its own line
+    M5.Display.setCursor(2, y);
+    M5.Display.printf("Z: %.3f", currentAccelZ);
+    y += 14;
+    
+    // Gyroscope data
+    M5.Display.setTextColor(YELLOW);
+    M5.Display.setCursor(2, y);
+    M5.Display.println("Gyroscope (deg/s):");
+    M5.Display.setTextColor(WHITE);
+    y += 10;
+    
+    // Display X and Y on the same line
+    M5.Display.setCursor(2, y);
+    M5.Display.printf("X: %.3f  Y: %.3f", currentGyroX, currentGyroY);
+    y += 10;
+    
+    // Display Z on its own line
+    M5.Display.setCursor(2, y);
+    M5.Display.printf("Z: %.3f", currentGyroZ);
+    y += 14;
+    
+    // Calculated velocity
+    M5.Display.setTextColor(YELLOW);
+    M5.Display.setCursor(2, y);
+    M5.Display.println("Velocity (m/s):");
+    M5.Display.setTextColor(WHITE);
+    y += 10;
+    
+    // Display X and Y on the same line
+    M5.Display.setCursor(2, y);
+    M5.Display.printf("X: %.3f  Y: %.3f", imuVelocity[0], imuVelocity[1]);
+    y += 10;
+    
+    // Display Z on its own line
+    M5.Display.setCursor(2, y);
+    M5.Display.printf("Z: %.3f", imuVelocity[2]);
+    y += 14;
+    
+    // Display total speed with green color for better visibility
+    M5.Display.setTextColor(GREEN);
+    M5.Display.setCursor(2, y);
+    M5.Display.printf("Speed: %.2f km/h", imuSpeed);
     
     return; // Skip the normal display update
   }
@@ -465,7 +499,7 @@ void updateDisplay() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("SPD");
       
-      // IMUを使用している場合は表示
+      // IMU is being used for speed measurement
       if (usingImuForSpeed) {
         M5.Display.setTextColor(YELLOW);
         M5.Display.print("(IMU)");
@@ -484,7 +518,7 @@ void updateDisplay() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("SPEED");
       
-      // IMUを使用している場合は表示
+      // IMU is being used for speed measurement
       if (usingImuForSpeed) {
         M5.Display.setTextColor(YELLOW);
         M5.Display.print(" (IMU)");
@@ -501,7 +535,7 @@ void updateDisplay() {
   }
   
   // Only update time dilation if changed
-  if (abs(prev_dilation - time_dilation) > 0.00001) {
+  if (abs(prev_time_dilation - time_dilation) > 0.00001) {
     int yPos = isSmallDisplay ? 58 : 85;
     
     if (isSmallDisplay) {
@@ -521,18 +555,15 @@ void updateDisplay() {
       M5.Display.setTextColor(WHITE);
       M5.Display.printf("%.6f", time_dilation);
     }
-    prev_dilation = time_dilation;
+    prev_time_dilation = time_dilation;
   }
   
   // Draw separator line
-  if (!line_drawn) {
-    int yPos = isSmallDisplay ? 68 : 100;
-    M5.Display.drawLine(0, yPos, displayWidth, yPos, CYAN);
-    line_drawn = true;
-  }
+  int lineYPos = isSmallDisplay ? 68 : 100;
+  M5.Display.drawLine(0, lineYPos, displayWidth, lineYPos, CYAN);
   
   // Only update device time if changed significantly
-  if (abs(prev_device_time - elapsed_device_time) > 0.1) {
+  if (abs(elapsed_device_time - prev_time_diff) > 0.1) {
     int yPos = isSmallDisplay ? 70 : 105;
     
     if (isSmallDisplay) {
@@ -543,7 +574,7 @@ void updateDisplay() {
       M5.Display.print("DEV:");
       M5.Display.setTextColor(WHITE);
       
-      // 時:分:秒形式で表示
+      // Display time in HH:MM:SS format
       char timeStr[12];
       formatTimeHMS(elapsed_device_time, timeStr);
       M5.Display.print(timeStr);
@@ -555,15 +586,15 @@ void updateDisplay() {
       M5.Display.print("DEVICE TIME: ");
       M5.Display.setTextColor(WHITE);
       
-      // 時:分:秒形式で表示
+      // Display time in HH:MM:SS format
       char timeStr[12];
       formatTimeHMS(elapsed_device_time, timeStr);
       M5.Display.print(timeStr);
     }
-    prev_device_time = elapsed_device_time;
+    prev_time_diff = elapsed_device_time;
   }
   
-  if (abs(prev_relative_time - elapsed_relativistic_time) > 0.1) {
+  if (abs(elapsed_relativistic_time - prev_time_diff) > 0.1) {
     int yPos = isSmallDisplay ? 78 : 115;
     
     if (isSmallDisplay) {
@@ -574,7 +605,7 @@ void updateDisplay() {
       M5.Display.print("REL:");
       M5.Display.setTextColor(WHITE);
       
-      // 時:分:秒形式で表示
+      // Display time in HH:MM:SS format
       char timeStr[12];
       formatTimeHMS(elapsed_relativistic_time, timeStr);
       M5.Display.print(timeStr);
@@ -586,16 +617,16 @@ void updateDisplay() {
       M5.Display.print("REL TIME: ");
       M5.Display.setTextColor(WHITE);
       
-      // 時:分:秒形式で表示
+      // Display time in HH:MM:SS format
       char timeStr[12];
       formatTimeHMS(elapsed_relativistic_time, timeStr);
       M5.Display.print(timeStr);
     }
-    prev_relative_time = elapsed_relativistic_time;
+    prev_time_diff = elapsed_relativistic_time;
   }
   
   // Only update time difference if changed significantly
-  if (abs(prev_difference - time_difference) > 0.1) {
+  if (abs(time_difference - prev_time_diff) > 0.1) {
     int yPos = isSmallDisplay ? 90 : 130;
     int boxHeight = isSmallDisplay ? 12 : 15;
     
@@ -612,9 +643,9 @@ void updateDisplay() {
     // Use absolute value of time difference for consistent display
     float absDiff = abs(time_difference);
     
-    // 非常に小さい値（0に近い値）の場合は0として扱う
+    // Very small values (close to 0) are treated as 0
     if (absDiff < 0.05) {
-      // ゼロに近い値の場合は特別な表示
+      // Special display for values close to 0
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, GREEN);
       M5.Display.setTextColor(GREEN);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -624,7 +655,7 @@ void updateDisplay() {
         M5.Display.printf("TIME DIFF: 0.0 s");
       }
     } else if (time_difference > 0) {
-      // 相対論的時間が通常時間より遅れている（期待される動作）
+      // Relativistic time is slower than normal time (expected behavior)
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, YELLOW);
       M5.Display.setTextColor(YELLOW);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -634,7 +665,7 @@ void updateDisplay() {
         M5.Display.printf("TIME DIFF: -%.1f s", absDiff);
       }
     } else {
-      // 相対論的時間が通常時間より進んでいる（通常は発生しないはず）
+      // Relativistic time is faster than normal time (unexpected behavior)
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, CYAN);
       M5.Display.setTextColor(CYAN);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -646,28 +677,7 @@ void updateDisplay() {
     }
     
     M5.Display.setTextColor(WHITE);
-    
-    // リセットボタンの表示エリアを描画
-    /*
-    int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
-    if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
-    
-    M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
-    M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
-    */
-    
-    prev_difference = time_difference;
-  }
-  
-  // Always show reset button with nice styling
-  if (!reset_shown) {
-    int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
-    if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
-    
-    //M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
-    //M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
-    
-    reset_shown = true;
+    prev_time_diff = time_difference;
   }
 }
 
@@ -683,55 +693,55 @@ void resetTimeCalculation() {
 
 // Reset display cache to force redraw
 void resetDisplayCache() {
-  // より安全な方法で画面を完全に再描画するための関数
+  // Safer method to force a complete redraw of the screen
   
-  // 静的変数を直接リセットすることはできないため、
-  // 画面を一度クリアして、updateDisplay関数内で
-  // 値が変更されたと判断されるようにする
+  // Static variables cannot be directly reset, so
+  // clear the screen and modify values to trigger a redraw
   
-  // 画面をクリア
+  // Clear the screen
   M5.Display.fillScreen(BLACK);
   
-  // 次回のupdateDisplay呼び出しで全ての要素が再描画されるように
-  // グローバル変数を少し変更する
-  current_speed += 0.2;  // 速度を少し変更して再描画を強制
-  time_dilation += 0.00002;  // 時間膨張を少し変更
+  // Modify values to trigger a redraw
+  current_speed += 0.2;  // Modify speed to trigger redraw
+  time_dilation += 0.00002;  // Modify time dilation to trigger redraw
   
-  // 時間の値を変更する際に、差が小さくなりすぎないように調整
+  // Adjust time values to maintain consistency
   double old_device_time = elapsed_device_time;
   double old_relativistic_time = elapsed_relativistic_time;
   
-  elapsed_device_time += 0.2;  // 経過時間を少し変更
+  elapsed_device_time += 0.2;  // Modify elapsed device time
   elapsed_relativistic_time = old_relativistic_time + 
-                             (elapsed_device_time - old_device_time) * time_dilation;  // 相対論的時間も適切に変更
+                             (elapsed_device_time - old_device_time) * time_dilation;  // Modify relativistic time
   
-  // 時間差を再計算（非常に小さな値になるのを防ぐ）
+  // Recalculate time difference
   time_difference = elapsed_device_time - elapsed_relativistic_time;
   
-  // GPSステータスも更新されるように、最終GPS受信時間を変更
+  // Modify last GPS data time to trigger redraw
   lastGpsDataTime = millis() - 1000;
 }
 
-// 時間表示のヘルパー関数
+// Time display helper function
 void formatTimeHMS(float seconds, char* buffer) {
-  int totalSeconds = (int)seconds;
-  int hours = totalSeconds / 3600;
-  int minutes = (totalSeconds % 3600) / 60;
-  int secs = totalSeconds % 60;
-  int millisecs = (int)((seconds - totalSeconds) * 10); // 小数点以下1桁まで
+  int hours = (int)(seconds / 3600);
+  seconds -= hours * 3600;
+  int minutes = (int)(seconds / 60);
+  seconds -= minutes * 60;
   
-  sprintf(buffer, "%02d:%02d:%02d.%01d", hours, minutes, secs, millisecs);
+  sprintf(buffer, "%02d:%02d:%05.2f", hours, minutes, seconds);
 }
 
-// 全ての要素を強制的に再描画する
+// Force complete redraw of all elements
 void forceCompleteRedraw() {
-  // 通常表示モードの場合のみ実行
-  if (!show_raw_gps) {
+  // Clear the screen first to prevent display corruption
+  M5.Display.fillScreen(BLACK);
+  
+  // Only for normal display mode
+  if (display_mode == 0) {
     int displayWidth = M5.Display.width();
     int displayHeight = M5.Display.height();
     bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
     
-    // タイトルバーを再描画
+    // Redraw title bar
     M5.Display.fillRect(0, 0, displayWidth, isSmallDisplay ? 20 : 30, NAVY);
     
     if (isSmallDisplay) {
@@ -754,7 +764,7 @@ void forceCompleteRedraw() {
     // Draw line below title
     M5.Display.drawLine(0, isSmallDisplay ? 20 : 30, displayWidth, isSmallDisplay ? 20 : 30, CYAN);
     
-    // 光速情報を再描画
+    // Redraw light speed information
     if (isSmallDisplay) {
       // For small displays, more compact information
       M5.Display.setCursor(50, 22);  // Moved right to avoid overlap with GPS status
@@ -789,12 +799,22 @@ void forceCompleteRedraw() {
       M5.Display.drawLine(0, 55, displayWidth, 55, CYAN);
     }
     
-    // GPS状態を強制的に再描画
+    // Redraw GPS status
     int current_gps_status = 0;
-    if (!gpsDataReceived) current_gps_status = 0;  // Not Connected
-    else if (millis() - lastGpsDataTime > 5000) current_gps_status = 1;  // No Signal
-    else if (gps.location.isValid()) current_gps_status = 3;  // Connected
-    else current_gps_status = 2;  // Acquiring
+    static int prev_gps_status = -1;
+    static double prev_speed = -1.0;
+    static double prev_time_dilation = -1.0;
+    static double prev_time_diff = -1.0;
+    
+    if (!gpsDataReceived) {
+      current_gps_status = 0; // No connection
+    } else if (millis() - lastGpsDataTime > 5000) {
+      current_gps_status = 1; // No signal (timeout)
+    } else if (!gps.location.isValid() || !gps.speed.isValid()) {
+      current_gps_status = 2; // Acquiring
+    } else {
+      current_gps_status = 3; // Connected with valid data
+    }
     
     if (isSmallDisplay) {
       // Compact GPS status for small displays - moved below title area
@@ -825,8 +845,9 @@ void forceCompleteRedraw() {
         break;
     }
     M5.Display.setTextColor(WHITE);
+    prev_gps_status = current_gps_status;
     
-    // 速度情報を強制的に再描画
+    // Redraw speed information
     int yPos = isSmallDisplay ? 40 : 60;
     
     if (isSmallDisplay) {
@@ -836,7 +857,7 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("SPD");
       
-      // IMUを使用している場合は表示
+      // IMU is being used for speed measurement
       if (usingImuForSpeed) {
         M5.Display.setTextColor(YELLOW);
         M5.Display.print("(IMU)");
@@ -855,7 +876,7 @@ void forceCompleteRedraw() {
       M5.Display.setTextColor(MAGENTA);
       M5.Display.print("SPEED");
       
-      // IMUを使用している場合は表示
+      // IMU is being used for speed measurement
       if (usingImuForSpeed) {
         M5.Display.setTextColor(YELLOW);
         M5.Display.print(" (IMU)");
@@ -869,7 +890,7 @@ void forceCompleteRedraw() {
       M5.Display.printf("       %.5f km/s", current_speed / 3600.0);
     }
     
-    // 時間膨張を強制的に再描画
+    // Redraw time dilation
     yPos = isSmallDisplay ? 58 : 85;
     
     if (isSmallDisplay) {
@@ -890,11 +911,11 @@ void forceCompleteRedraw() {
       M5.Display.printf("%.6f", time_dilation);
     }
     
-    // セパレータラインを描画
+    // Draw separator line
     int lineYPos = isSmallDisplay ? 68 : 100;
     M5.Display.drawLine(0, lineYPos, displayWidth, lineYPos, CYAN);
     
-    // 時間表示を強制的に再描画
+    // Redraw device time
     yPos = isSmallDisplay ? 70 : 105;
     
     if (isSmallDisplay) {
@@ -905,7 +926,7 @@ void forceCompleteRedraw() {
       M5.Display.print("DEV:");
       M5.Display.setTextColor(WHITE);
       
-      // 時:分:秒形式で表示
+      // Display time in HH:MM:SS format
       char timeStr[12];
       formatTimeHMS(elapsed_device_time, timeStr);
       M5.Display.print(timeStr);
@@ -917,7 +938,7 @@ void forceCompleteRedraw() {
       M5.Display.print("DEVICE TIME: ");
       M5.Display.setTextColor(WHITE);
       
-      // 時:分:秒形式で表示
+      // Display time in HH:MM:SS format
       char timeStr[12];
       formatTimeHMS(elapsed_device_time, timeStr);
       M5.Display.print(timeStr);
@@ -933,7 +954,7 @@ void forceCompleteRedraw() {
       M5.Display.print("REL:");
       M5.Display.setTextColor(WHITE);
       
-      // 時:分:秒形式で表示
+      // Display time in HH:MM:SS format
       char timeStr[12];
       formatTimeHMS(elapsed_relativistic_time, timeStr);
       M5.Display.print(timeStr);
@@ -945,13 +966,13 @@ void forceCompleteRedraw() {
       M5.Display.print("REL TIME: ");
       M5.Display.setTextColor(WHITE);
       
-      // 時:分:秒形式で表示
+      // Display time in HH:MM:SS format
       char timeStr[12];
       formatTimeHMS(elapsed_relativistic_time, timeStr);
       M5.Display.print(timeStr);
     }
     
-    // 時間差を強制的に再描画
+    // Redraw time difference
     yPos = isSmallDisplay ? 90 : 130;
     int boxHeight = isSmallDisplay ? 12 : 15;
     
@@ -968,9 +989,9 @@ void forceCompleteRedraw() {
     // Use absolute value of time difference for consistent display
     float absDiff = abs(time_difference);
     
-    // 非常に小さい値（0に近い値）の場合は0として扱う
+    // Very small values (close to 0) are treated as 0
     if (absDiff < 0.05) {
-      // ゼロに近い値の場合は特別な表示
+      // Special display for values close to 0
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, GREEN);
       M5.Display.setTextColor(GREEN);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -980,7 +1001,7 @@ void forceCompleteRedraw() {
         M5.Display.printf("TIME DIFF: 0.0 s");
       }
     } else if (time_difference > 0) {
-      // 相対論的時間が通常時間より遅れている（期待される動作）
+      // Relativistic time is slower than normal time (expected behavior)
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, YELLOW);
       M5.Display.setTextColor(YELLOW);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -990,7 +1011,7 @@ void forceCompleteRedraw() {
         M5.Display.printf("TIME DIFF: -%.1f s", absDiff);
       }
     } else {
-      // 相対論的時間が通常時間より進んでいる（通常は発生しないはず）
+      // Relativistic time is faster than normal time (unexpected behavior)
       M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, CYAN);
       M5.Display.setTextColor(CYAN);
       M5.Display.setCursor(boxX + 3, boxY+3);
@@ -1002,26 +1023,17 @@ void forceCompleteRedraw() {
     }
     
     M5.Display.setTextColor(WHITE);
-    
-    // リセットボタンの表示エリアを描画
-    /*
-    int btnY = isSmallDisplay ? 110 : (displayHeight - 20);
-    if (btnY < (isSmallDisplay ? 110 : 150)) btnY = isSmallDisplay ? 110 : 150; // Ensure button is visible
-    
-    M5.Display.fillRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, NAVY);
-    M5.Display.drawRect(0, btnY, displayWidth, isSmallDisplay ? 15 : 20, CYAN);
-    */
   }
 }
 
 // Initialize IMU
 void initializeImu() {
-  // IMUの初期化
+  // Initialize the IMU
   if (M5.Imu.begin()) {
     imuInitialized = true;
     Serial.println("IMU initialized successfully");
     
-    // IMUのキャリブレーションを開始
+    // Start IMU calibration
     calibrateImu();
   } else {
     Serial.println("Failed to initialize IMU");
@@ -1029,28 +1041,30 @@ void initializeImu() {
   }
 }
 
-// IMUのキャリブレーション
+// Calibrate IMU
 void calibrateImu() {
   if (!imuInitialized) return;
   
   Serial.println("Starting IMU calibration...");
   Serial.println("Keep the device still for 5 seconds");
   
-  // キャリブレーション開始を表示
+  // Display calibration start message
   int displayWidth = M5.Display.width();
   int displayHeight = M5.Display.height();
   bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
   
-  M5.Display.fillRect(0, isSmallDisplay ? 40 : 60, displayWidth, 20, BLUE);
+  // Display calibration message at the bottom of the screen
+  int messageY = isSmallDisplay ? (displayHeight - 20) : (displayHeight - 30);
+  M5.Display.fillRect(0, messageY, displayWidth, 20, BLUE);
   M5.Display.setTextColor(WHITE, BLUE);
-  M5.Display.setCursor(5, isSmallDisplay ? 40 : 60);
+  M5.Display.setCursor(5, messageY + 5);
   M5.Display.print("IMU Calibrating...");
   
-  // オフセット計算用の変数
+  // Variables for offset calculation
   float accelSumX = 0.0f, accelSumY = 0.0f, accelSumZ = 0.0f;
   int sampleCount = 0;
   
-  // キャリブレーション時間の間、加速度データを収集
+  // Collect acceleration data during calibration time
   unsigned long startTime = millis();
   while (millis() - startTime < IMU_CALIBRATION_TIME) {
     float accelX, accelY, accelZ;
@@ -1063,13 +1077,13 @@ void calibrateImu() {
     delay(10);
   }
   
-  // 平均値を計算してオフセットとして設定
+  // Calculate average values and set as offset
   if (sampleCount > 0) {
     imuAccelOffset[0] = accelSumX / sampleCount;
     imuAccelOffset[1] = accelSumY / sampleCount;
     imuAccelOffset[2] = accelSumZ / sampleCount;
     
-    // 重力加速度（Z軸）は補正する（静止時は約1Gの重力がかかっている）
+    // Adjust for gravity acceleration (Z-axis has ~1G of gravity when stationary)
     imuAccelOffset[2] -= 1.0f;
     
     imuCalibrated = true;
@@ -1079,30 +1093,35 @@ void calibrateImu() {
     Serial.println("IMU calibration failed - no samples collected");
   }
   
-  // キャリブレーション終了を表示
-  M5.Display.fillRect(0, isSmallDisplay ? 40 : 60, displayWidth, 20, BLACK);
+  // Clear calibration message after completion
+  M5.Display.fillRect(0, messageY, displayWidth, 20, BLACK);
 }
 
-// IMUデータの更新
+// Update IMU data
 void updateImuData() {
   if (!imuInitialized || !imuCalibrated) return;
   
   float accelX, accelY, accelZ;
   if (M5.Imu.getAccel(&accelX, &accelY, &accelZ)) {
-    // オフセットを適用
+    // Save current acceleration values (for display)
+    currentAccelX = accelX;
+    currentAccelY = accelY;
+    currentAccelZ = accelZ;
+    
+    // Apply offsets
     accelX -= imuAccelOffset[0];
     accelY -= imuAccelOffset[1];
     accelZ -= imuAccelOffset[2];
     
-    // 加速度から速度を推定
+    // Estimate velocity from acceleration
     unsigned long currentTime = millis();
     if (lastImuUpdate > 0) {
-      float deltaT = (currentTime - lastImuUpdate) / 1000.0f; // 秒単位
+      float deltaT = (currentTime - lastImuUpdate) / 1000.0f; // in seconds
       
-      // 加速度から速度を計算（積分）
-      // 閾値以下の加速度はノイズとして無視
+      // Calculate velocity from acceleration (integration)
+      // Ignore acceleration below threshold as noise
       if (abs(accelX) > IMU_ACCEL_THRESHOLD) {
-        imuVelocity[0] += accelX * deltaT * 9.81f; // 加速度をm/s^2に変換
+        imuVelocity[0] += accelX * deltaT * 9.81f; // Convert to m/s^2
       }
       if (abs(accelY) > IMU_ACCEL_THRESHOLD) {
         imuVelocity[1] += accelY * deltaT * 9.81f;
@@ -1111,40 +1130,48 @@ void updateImuData() {
         imuVelocity[2] += accelZ * deltaT * 9.81f;
       }
       
-      // 速度の減衰（摩擦や空気抵抗をシミュレート）
+      // Apply decay to velocity (simulate friction and air resistance)
       imuVelocity[0] *= IMU_SPEED_DECAY;
       imuVelocity[1] *= IMU_SPEED_DECAY;
       imuVelocity[2] *= IMU_SPEED_DECAY;
       
-      // 3次元速度ベクトルの大きさを計算
+      // Calculate magnitude of 3D velocity vector
       imuSpeed = sqrt(imuVelocity[0]*imuVelocity[0] + 
                       imuVelocity[1]*imuVelocity[1] + 
                       imuVelocity[2]*imuVelocity[2]);
       
-      // m/sからkm/hに変換
+      // Convert from m/s to km/h
       imuSpeed *= 3.6f;
     }
     
     lastImuUpdate = currentTime;
   }
+  
+  // Get gyroscope data (for display)
+  float gyroX, gyroY, gyroZ;
+  if (M5.Imu.getGyro(&gyroX, &gyroY, &gyroZ)) {
+    currentGyroX = gyroX;
+    currentGyroY = gyroY;
+    currentGyroZ = gyroZ;
+  }
 }
 
-// GPSまたはIMUに基づいて速度を更新
+// Update speed based on GPS or IMU
 void updateSpeed() {
-  // GPSが有効な場合はGPSの速度を使用
+  // Use GPS speed if valid
   if (gps.speed.isValid() && (millis() - lastGpsDataTime < 5000)) {
     current_speed = gps.speed.kmph();
     usingImuForSpeed = false;
   } 
-  // GPSが無効でIMUが利用可能な場合
+  // Use IMU if GPS is unavailable
   else if (USE_IMU_WHEN_GPS_LOST && imuInitialized && imuCalibrated) {
     current_speed = imuSpeed;
     usingImuForSpeed = true;
   } 
-  // どちらも利用できない場合
+  // If neither is available
   else {
-    // 速度を維持するか、徐々に減衰させる
-    current_speed *= 0.95; // 徐々に減衰
+    // Maintain speed or gradually decay it
+    current_speed *= 0.95; // Gradual decay
     usingImuForSpeed = false;
   }
 }
