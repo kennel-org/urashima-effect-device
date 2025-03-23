@@ -152,7 +152,22 @@ void setup() {
       M5.Display.drawLine(0, 55, displayWidth, 55, CYAN);
     }
     
-    updateDisplay(); // Initial display update
+    // Initialize time variables
+    elapsed_device_time = 0.0;
+    elapsed_relativistic_time = 0.0;
+    time_difference = 0.0;
+    time_dilation = 1.0;
+    
+    // Initialize display tracking variables
+    prev_device_time = 0.0;
+    prev_rel_time = 0.0;
+    prev_time_diff = 0.0;
+    
+    // Initialize last update time
+    last_update = millis();
+    
+    // Initialize display
+    forceCompleteRedraw();
     Serial.println("Display initialized");
   } else {
     Serial.println("No display detected");
@@ -172,8 +187,6 @@ void setup() {
   
   // Load saved data from persistent storage
   loadSavedData();
-  
-  last_update = millis();
 }
 
 void loop() {
@@ -296,6 +309,9 @@ void loop() {
       time_difference = 0.0;
       time_dilation = 1.0;
       
+      // Reset distance variable
+      total_distance = 0.0;
+      
       // Reset display tracking variables
       prev_device_time = 0.0;
       prev_rel_time = 0.0;
@@ -332,9 +348,25 @@ void loop() {
       
       // Clear confirmation message
       M5.Display.fillScreen(BLACK);
-      forceCompleteRedraw();
+      
+      // Display cancellation message
+      int displayWidth = M5.Display.width();
+      int displayHeight = M5.Display.height();
+      bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
+      
+      // Center of screen
+      int messageY = displayHeight / 2 - 10;
+      
+      M5.Display.fillRect(0, messageY, displayWidth, 20, YELLOW);
+      M5.Display.setTextColor(BLACK, YELLOW);
+      M5.Display.setCursor(isSmallDisplay ? 15 : 50, messageY + 5);
+      M5.Display.println("RESET CANCELLED");
       
       Serial.println("Time reset cancelled (timeout)");
+      
+      // Show message for 1.5 seconds then redraw
+      delay(1500);
+      forceCompleteRedraw();
     }
   }
   
@@ -493,17 +525,29 @@ void updateDisplay() {
     
     // Date & Time
     M5.Display.setCursor(2, y);
-    M5.Display.print("Time:");
-    if (gps.date.isValid() && gps.time.isValid()) {
-      char dateTimeStr[20];
-      sprintf(dateTimeStr, "%04d-%02d-%02d %02d:%02d:%02d", 
-              gps.date.year(), gps.date.month(), gps.date.day(),
-              gps.time.hour(), gps.time.minute(), gps.time.second());
-      M5.Display.print(dateTimeStr);
+    M5.Display.print("Date:");
+    if (gps.date.isValid()) {
+      char dateStr[12];
+      sprintf(dateStr, "%04d-%02d-%02d", 
+              gps.date.year(), gps.date.month(), gps.date.day());
+      M5.Display.print(dateStr);
     } else {
       M5.Display.print("--");
     }
-    y += 8; // Reduced spacing
+    y += 8;
+    
+    // Time on separate line
+    M5.Display.setCursor(2, y);
+    M5.Display.print("Time:");
+    if (gps.time.isValid()) {
+      char timeStr[10];
+      sprintf(timeStr, "%02d:%02d:%02d", 
+              gps.time.hour(), gps.time.minute(), gps.time.second());
+      M5.Display.print(timeStr);
+    } else {
+      M5.Display.print("--");
+    }
+    y += 8;
     
     // HDOP (Horizontal Dilution of Precision)
     M5.Display.setCursor(2, y);
@@ -524,62 +568,64 @@ void updateDisplay() {
     M5.Display.fillRect(0, startY, displayWidth, displayHeight - startY, BLACK);
     
     M5.Display.setTextColor(MAGENTA);
-    M5.Display.setCursor(2, startY + 2);
+    // Adjust the title position to be higher
+    int centerY = startY - 15;  // Moved up even more
+    M5.Display.setCursor(2, centerY);
     M5.Display.println("RAW IMU DATA:");
     M5.Display.setTextColor(WHITE);
     
-    int y = startY + 12;
+    int y = centerY + 10;
     
     // Accelerometer data
     M5.Display.setTextColor(YELLOW);
     M5.Display.setCursor(2, y);
     M5.Display.println("Accelerometer (G):");
     M5.Display.setTextColor(WHITE);
-    y += 10;
+    y += 9; // Reduced spacing
     
     // Display X and Y on the same line
     M5.Display.setCursor(2, y);
     M5.Display.printf("X: %.3f  Y: %.3f", currentAccelX, currentAccelY);
-    y += 10;
+    y += 9; // Reduced spacing
     
     // Display Z on its own line
     M5.Display.setCursor(2, y);
     M5.Display.printf("Z: %.3f", currentAccelZ);
-    y += 14;
+    y += 12; // Reduced spacing
     
     // Gyroscope data
     M5.Display.setTextColor(YELLOW);
     M5.Display.setCursor(2, y);
     M5.Display.println("Gyroscope (deg/s):");
     M5.Display.setTextColor(WHITE);
-    y += 10;
+    y += 9; // Reduced spacing
     
     // Display X and Y on the same line
     M5.Display.setCursor(2, y);
     M5.Display.printf("X: %.3f  Y: %.3f", currentGyroX, currentGyroY);
-    y += 10;
+    y += 9; // Reduced spacing
     
     // Display Z on its own line
     M5.Display.setCursor(2, y);
     M5.Display.printf("Z: %.3f", currentGyroZ);
-    y += 14;
+    y += 12; // Reduced spacing
     
     // Calculated velocity
     M5.Display.setTextColor(YELLOW);
     M5.Display.setCursor(2, y);
     M5.Display.println("Velocity (m/s):");
     M5.Display.setTextColor(WHITE);
-    y += 10;
+    y += 9; // Reduced spacing
     
     // Display X and Y on the same line
     M5.Display.setCursor(2, y);
     M5.Display.printf("X: %.3f  Y: %.3f", imuVelocity[0], imuVelocity[1]);
-    y += 10;
+    y += 9; // Reduced spacing
     
     // Display Z on its own line
     M5.Display.setCursor(2, y);
     M5.Display.printf("Z: %.3f", imuVelocity[2]);
-    y += 14;
+    y += 12; // Reduced spacing
     
     // Display total speed with green color for better visibility
     M5.Display.setTextColor(GREEN);
@@ -1500,12 +1546,11 @@ void updateDistance() {
       
       // Save total distance to persistent storage every 100 meters or 5 minutes
       static unsigned long last_save_time = 0;
-      static double last_saved_distance = 0;
       
       bool shouldSave = false;
       
       // Save if we've traveled more than 100 meters since last save
-      if (total_distance - last_saved_distance >= 0.1) {
+      if (total_distance >= 0.1) {
         shouldSave = true;
       }
       
@@ -1516,7 +1561,6 @@ void updateDistance() {
       
       if (shouldSave) {
         preferences.putDouble("total_dist", total_distance);
-        last_saved_distance = total_distance;
         last_save_time = currentTime;
         
         // Log to serial occasionally
