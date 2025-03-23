@@ -252,6 +252,96 @@ void loop() {
     forceCompleteRedraw();
   }
   
+  // Handle button long press for time reset
+  static bool resetConfirmMode = false;
+  static unsigned long resetConfirmTime = 0;
+  
+  // Check for long press on BtnA (2 seconds)
+  if (M5.BtnA.pressedFor(2000)) {
+    if (!resetConfirmMode) {
+      resetConfirmMode = true;
+      resetConfirmTime = millis();
+      
+      // Display reset confirmation message
+      int displayWidth = M5.Display.width();
+      int displayHeight = M5.Display.height();
+      bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
+      
+      // Position at bottom of screen
+      int messageY = isSmallDisplay ? (displayHeight - 40) : (displayHeight - 60);
+      
+      // Draw confirmation box
+      M5.Display.fillRect(0, messageY, displayWidth, isSmallDisplay ? 40 : 60, RED);
+      M5.Display.setTextColor(WHITE, RED);
+      
+      if (isSmallDisplay) {
+        M5.Display.setCursor(5, messageY + 5);
+        M5.Display.println("RESET TIME?");
+        M5.Display.setCursor(5, messageY + 20);
+        M5.Display.println("Press A to confirm");
+      } else {
+        M5.Display.setCursor(10, messageY + 10);
+        M5.Display.println("RESET DEVICE TIME?");
+        M5.Display.setCursor(10, messageY + 30);
+        M5.Display.println("Press Button A again to confirm");
+      }
+      
+      Serial.println("Time reset confirmation requested");
+    }
+  }
+  
+  // If in reset confirmation mode
+  if (resetConfirmMode) {
+    // If button A is pressed again while in confirmation mode, reset the time
+    if (M5.BtnA.wasPressed()) {
+      // Reset time variables
+      elapsed_device_time = 0.0;
+      elapsed_relativistic_time = 0.0;
+      time_difference = 0.0;
+      time_dilation = 1.0;
+      
+      // Reset display tracking variables
+      prev_device_time = 0.0;
+      prev_rel_time = 0.0;
+      prev_time_diff = 0.0;
+      
+      // Clear confirmation message
+      M5.Display.fillScreen(BLACK);
+      forceCompleteRedraw();
+      
+      // Display reset confirmation
+      int displayWidth = M5.Display.width();
+      int displayHeight = M5.Display.height();
+      bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
+      
+      // Center of screen
+      int messageY = displayHeight / 2 - 10;
+      
+      M5.Display.fillRect(0, messageY, displayWidth, 20, GREEN);
+      M5.Display.setTextColor(BLACK, GREEN);
+      M5.Display.setCursor(isSmallDisplay ? 15 : 50, messageY + 5);
+      M5.Display.println("TIME RESET COMPLETE");
+      
+      Serial.println("Device time reset completed");
+      
+      // Exit reset confirmation mode
+      resetConfirmMode = false;
+      delay(1500);  // Show message for 1.5 seconds
+      forceCompleteRedraw();
+    }
+    
+    // If no confirmation within 5 seconds, cancel reset
+    if (millis() - resetConfirmTime > 5000) {
+      resetConfirmMode = false;
+      
+      // Clear confirmation message
+      M5.Display.fillScreen(BLACK);
+      forceCompleteRedraw();
+      
+      Serial.println("Time reset cancelled (timeout)");
+    }
+  }
+  
   // Update screen periodically
   if (millis() - last_update > 500) {  // Reduce update frequency to 500ms
     unsigned long current_millis = millis();
