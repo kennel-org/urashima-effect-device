@@ -8,8 +8,8 @@ const double ORIGINAL_LIGHT_SPEED = 299792.458;  // Actual speed of light (km/s)
 const double MODIFIED_LIGHT_SPEED = 0.03;       // Modified speed of light (km/s)
 
 // GPS connection pin settings
-#define GPS_RX_PIN -1     // No specific pin for GPS RX (using UART RX)
-#define GPS_TX_PIN 5      // ATOMS3R GPIO5 for GPS TX
+#define GPS_RX_PIN 5     // ATOMS3R GPIO5 for GPS TX (receiving data from GPS)
+#define GPS_TX_PIN -1    // GPS RX is not connected
 
 // IMU related constants
 #define USE_IMU_WHEN_GPS_LOST true  // Use IMU when GPS signal is lost
@@ -160,7 +160,7 @@ void setup() {
   
   // Initialize GPS
   Serial.println("Initializing GPS");
-  GPSSerial.begin(9600, SERIAL_8N1, -1, GPS_TX_PIN);
+  GPSSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);  // RX=2, TX=-1 (not used)
   
   Serial.println("Waiting for GPS data...");
   
