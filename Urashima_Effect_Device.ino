@@ -1,6 +1,7 @@
 #include <M5Unified.h>    // Unified library for M5Stack devices
 #include <TinyGPS++.h>    // GPS parsing library
 #include <SPI.h>          // SPI library
+#include <Preferences.h>  // 不揮発性メモリ用のライブラリ
 
 // Constants
 const double ORIGINAL_LIGHT_SPEED = 299792.458;  // Actual speed of light (km/s)
@@ -22,6 +23,7 @@ const double MODIFIED_LIGHT_SPEED = 0.3;       // Modified speed of light (km/s)
 #define IMU_CALIBRATION_SAMPLES 100 // Number of samples for calibration
 #define GPS_IMU_FUSION_WEIGHT 0.2f  // Weight for sensor fusion (0.0 = IMU only, 1.0 = GPS only)
 #define GPS_VALID_TIMEOUT 5000      // Time in ms after which GPS data is considered stale
+#define SAVE_DATA_INTERVAL 60000    // Interval to save data to persistent storage (60 seconds)
 
 // GPS related constants
 #define GPS_RX_PIN 1      // ATOMS3R GPIO1 for GPS RX
@@ -45,6 +47,12 @@ unsigned long lastGpsDataTime = 0;  // Last time GPS data was received
 bool show_raw_gps = false;  // Whether to show raw GPS data (kept for compatibility)
 bool show_raw_imu = false;  // Whether to show raw IMU data (kept for compatibility)
 int display_mode = 0;  // Display mode (0:Main, 1:GPS, 2:IMU)
+double total_distance = 0.0;  // Total distance traveled (km)
+unsigned long last_persistent_save = 0;  // Last time data was saved to persistent storage
+unsigned long last_distance_update = 0;  // Last time distance was updated
+
+// Preferences object for persistent storage
+Preferences preferences;
 
 // Display update tracking variables
 double prev_device_time = 0.0;     // Previous device time for display updates
@@ -74,7 +82,7 @@ void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
   
-  // Set up serial communication
+  // Initialize serial communication
   Serial.begin(115200);
   Serial.println("Urashima Effect Device Starting...");
   
@@ -163,6 +171,12 @@ void setup() {
   // Initialize IMU
   initializeImu();
   
+  // Initialize persistent storage
+  preferences.begin("urashima", false);
+  
+  // Load saved data from persistent storage
+  loadSavedData();
+  
   last_update = millis();
 }
 
@@ -182,11 +196,25 @@ void loop() {
         Serial.printf("GPS Location: %.6f, %.6f Alt: %.1f Sats: %d\n", 
                       gps.location.lat(), gps.location.lng(), 
                       gps.altitude.meters(), gps.satellites.value());
+        
+        // Save last valid GPS location to persistent storage
+        if (gps.location.isValid()) {
+          preferences.putDouble("last_lat", gps.location.lat());
+          preferences.putDouble("last_lng", gps.location.lng());
+          preferences.putFloat("last_alt", gps.altitude.meters());
+          preferences.putUInt("last_gps_time", lastGpsDataTime);
+          
+          // Only log to serial occasionally to avoid flooding
+          if (millis() % 10000 < 100) {  // Log approximately every 10 seconds
+            Serial.println("GPS location saved to persistent storage");
+          }
+        }
       }
       
       // Log speed when updated
       if (gps.speed.isUpdated()) {
-        Serial.printf("GPS Speed: %.2f km/h\n", gps.speed.kmph());
+        Serial.printf("GPS Speed: %.1f km/h Course: %.1f°\n", 
+                     gps.speed.kmph(), gps.course.deg());
       }
     }
   }
@@ -237,6 +265,9 @@ void loop() {
     
     // Calculate relativistic effect
     calculateRelativisticEffect(delta_t);
+    
+    // Update distance calculation
+    updateDistance();
     
     // Update display
     updateDisplay();
@@ -698,6 +729,16 @@ void updateDisplay() {
     M5.Display.setTextColor(WHITE);
     prev_time_diff = time_difference;
   }
+  
+  // Display total distance
+  int distYPos = isSmallDisplay ? 105 : 150;
+  M5.Display.fillRect(0, distYPos, displayWidth, 10, BLACK);
+  M5.Display.setCursor(isSmallDisplay ? 4 : 10, distYPos);
+  M5.Display.setTextColor(GREEN);
+  M5.Display.print("TOTAL DIST: ");
+  M5.Display.setTextColor(WHITE);
+  M5.Display.print(total_distance, 2);
+  M5.Display.print(" km");
 }
 
 // Reset time calculations
@@ -1064,6 +1105,36 @@ void initializeImu() {
 void calibrateImu() {
   if (!imuInitialized) return;
   
+  // Check if we have saved calibration data
+  if (preferences.isKey("imu_cal_x") && 
+      preferences.isKey("imu_cal_y") && 
+      preferences.isKey("imu_cal_z")) {
+    
+    // Load calibration data from persistent storage
+    imuAccelOffset[0] = preferences.getFloat("imu_cal_x", 0.0);
+    imuAccelOffset[1] = preferences.getFloat("imu_cal_y", 0.0);
+    imuAccelOffset[2] = preferences.getFloat("imu_cal_z", 0.0);
+    
+    Serial.printf("Loaded IMU calibration: X=%.4f, Y=%.4f, Z=%.4f\n", 
+                 imuAccelOffset[0], imuAccelOffset[1], imuAccelOffset[2]);
+    
+    // Display message about loaded calibration
+    int displayWidth = M5.Display.width();
+    int displayHeight = M5.Display.height();
+    bool isSmallDisplay = (displayWidth <= 128 && displayHeight <= 128);
+    
+    int messageY = isSmallDisplay ? (displayHeight - 20) : (displayHeight - 30);
+    M5.Display.fillRect(0, messageY, displayWidth, 20, DARKGREEN);
+    M5.Display.setTextColor(WHITE, DARKGREEN);
+    M5.Display.setCursor(5, messageY + 5);
+    M5.Display.print("IMU Calibration Loaded");
+    delay(1000);
+    M5.Display.fillRect(0, messageY, displayWidth, 20, BLACK);
+    
+    imuCalibrated = true;
+    return;
+  }
+  
   Serial.println("Starting IMU calibration...");
   Serial.println("Keep the device still for 5 seconds");
   
@@ -1094,6 +1165,12 @@ void calibrateImu() {
       sampleCount++;
     }
     delay(10);
+    
+    // Show progress bar
+    int progress = ((millis() - startTime) * 100) / IMU_CALIBRATION_TIME;
+    int barWidth = (displayWidth - 20) * progress / 100;
+    M5.Display.fillRect(10, messageY + 15, displayWidth - 20, 3, DARKGREY);
+    M5.Display.fillRect(10, messageY + 15, barWidth, 3, GREEN);
   }
   
   // Calculate average values and set as offset
@@ -1105,11 +1182,30 @@ void calibrateImu() {
     // Adjust for gravity acceleration (Z-axis has ~1G of gravity when stationary)
     imuAccelOffset[2] -= 1.0f;
     
+    // Save calibration data to persistent storage
+    preferences.putFloat("imu_cal_x", imuAccelOffset[0]);
+    preferences.putFloat("imu_cal_y", imuAccelOffset[1]);
+    preferences.putFloat("imu_cal_z", imuAccelOffset[2]);
+    
     imuCalibrated = true;
     Serial.printf("IMU calibration complete. Offsets: X=%.3f Y=%.3f Z=%.3f\n", 
                  imuAccelOffset[0], imuAccelOffset[1], imuAccelOffset[2]);
+    
+    // Display success message
+    M5.Display.fillRect(0, messageY, displayWidth, 20, DARKGREEN);
+    M5.Display.setTextColor(WHITE, DARKGREEN);
+    M5.Display.setCursor(5, messageY + 5);
+    M5.Display.print("IMU Calibration Saved");
+    delay(1000);
   } else {
     Serial.println("IMU calibration failed - no samples collected");
+    
+    // Display error message
+    M5.Display.fillRect(0, messageY, displayWidth, 20, RED);
+    M5.Display.setTextColor(WHITE, RED);
+    M5.Display.setCursor(5, messageY + 5);
+    M5.Display.print("IMU Calibration Failed");
+    delay(1000);
   }
   
   // Clear calibration message after completion
@@ -1252,6 +1348,9 @@ void updateSpeed() {
     lastValidGpsSpeed = gpsSpeed;
     hasValidGpsSpeed = true;
     
+    // Save valid GPS speed to persistent storage
+    preferences.putFloat("last_speed", gpsSpeed);
+    
     // Calculate fused speed with weighted average
     if (imuInitialized && imuCalibrated) {
       // Gradually transition from GPS to IMU or vice versa
@@ -1295,4 +1394,108 @@ void updateSpeed() {
       Serial.println(" km/h (estimated)");
     }
   }
+}
+
+// Update distance calculation
+void updateDistance() {
+  unsigned long currentTime = millis();
+  
+  // Calculate time elapsed since last update in hours (for distance = speed * time)
+  float deltaTimeHours = (float)(currentTime - last_distance_update) / 3600000.0f;
+  
+  // Only update if we have a reasonable time delta
+  if (deltaTimeHours > 0 && deltaTimeHours < 0.1) {  // Less than 6 minutes
+    // Calculate distance traveled in this interval (km)
+    float distance_increment = current_speed * deltaTimeHours;
+    
+    // Only add if it's a reasonable value (not too large, which could indicate an error)
+    if (distance_increment >= 0 && distance_increment < 10.0) {
+      total_distance += distance_increment;
+      
+      // Save total distance to persistent storage every 100 meters or 5 minutes
+      static unsigned long last_save_time = 0;
+      static double last_saved_distance = 0;
+      
+      bool shouldSave = false;
+      
+      // Save if we've traveled more than 100 meters since last save
+      if (total_distance - last_saved_distance >= 0.1) {
+        shouldSave = true;
+      }
+      
+      // Or save if it's been more than 5 minutes since last save
+      if (currentTime - last_save_time >= 300000) {
+        shouldSave = true;
+      }
+      
+      if (shouldSave) {
+        preferences.putDouble("total_dist", total_distance);
+        last_saved_distance = total_distance;
+        last_save_time = currentTime;
+        
+        // Log to serial occasionally
+        if (currentTime % 60000 < 100) {  // Log approximately every minute
+          Serial.printf("Total distance saved: %.2f km\n", total_distance);
+        }
+      }
+    }
+  }
+  
+  last_distance_update = currentTime;
+}
+
+// Save data to persistent storage
+void saveDataToPersistentStorage() {
+  // Save total distance
+  preferences.putDouble("total_dist", total_distance);
+  
+  // Save last valid GPS speed
+  if (hasValidGpsSpeed) {
+    preferences.putFloat("last_speed", lastValidGpsSpeed);
+  }
+  
+  // Save IMU calibration data (if calibrated)
+  if (imuCalibrated) {
+    preferences.putFloat("imu_cal_x", imuAccelOffset[0]);
+    preferences.putFloat("imu_cal_y", imuAccelOffset[1]);
+    preferences.putFloat("imu_cal_z", imuAccelOffset[2]);
+  }
+  
+  Serial.println("Data saved to persistent storage");
+}
+
+// Load saved data from persistent storage
+void loadSavedData() {
+  // Load total distance
+  total_distance = preferences.getDouble("total_dist", 0.0);
+  
+  // Load last valid GPS speed
+  lastValidGpsSpeed = preferences.getFloat("last_speed", 0.0);
+  hasValidGpsSpeed = preferences.isKey("last_speed");
+  
+  // Load last GPS position (for display purposes)
+  bool hasLastPosition = preferences.isKey("last_lat") && 
+                         preferences.isKey("last_lng") && 
+                         preferences.isKey("last_gps_time");
+  
+  if (hasLastPosition) {
+    double lastLat = preferences.getDouble("last_lat", 0.0);
+    double lastLng = preferences.getDouble("last_lng", 0.0);
+    float lastAlt = preferences.getFloat("last_alt", 0.0);
+    unsigned long lastTime = preferences.getUInt("last_gps_time", 0);
+    
+    // Calculate how old the data is
+    unsigned long dataAge = millis() - lastTime;
+    
+    // Only log if the data isn't too old (device just started)
+    if (dataAge < 3600000) { // 1 hour
+      Serial.printf("Loaded last GPS position: %.6f, %.6f, Alt: %.1f m (%.1f minutes ago)\n", 
+                   lastLat, lastLng, lastAlt, dataAge / 60000.0);
+    }
+  }
+  
+  // IMU calibration data is loaded in calibrateImu()
+  
+  Serial.printf("Loaded from persistent storage: Distance=%.2f km, Last Speed=%.1f km/h\n", 
+               total_distance, lastValidGpsSpeed);
 }
