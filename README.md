@@ -20,10 +20,10 @@ This ancient tale presents a fascinating parallel to Einstein's relativistic tim
 
 - **Real-time relativistic time dilation calculation**: Computes time dilation based on movement speed using Einstein's Special Relativity equations
 - **GPS speed measurement**: Accurate velocity tracking with a high-precision GPS module
-- **GPS-IMU sensor fusion**: Combines GPS and IMU data for improved speed accuracy, with fallback to IMU-only when GPS is unavailable
+- **GPS-IMU sensor fusion**: Combines GPS and IMU data for improved speed accuracy (GPS weight: 80%, IMU weight: 20%), with fallback to IMU-only when GPS is unavailable for more than 5 seconds
 - **Accelerometer backup**: Estimates speed using the built-in accelerometer when GPS signals are weak
-- **Time and distance reset**: Long-press the button to reset elapsed time and distance measurements
-- **SD card logging**: Records movement data and time dilation effects to CSV files
+- **Time and distance reset**: Long-press the button for 2 seconds to display a confirmation screen, then press again to reset elapsed time and distance measurements
+- **SD card logging**: Records movement data and time dilation effects to CSV files every 5 seconds
 - **Compact design**: Displays essential information on the M5Stack AtomS3R's small screen
 - **Battery-powered**: Built-in battery for outdoor use
 
@@ -47,7 +47,7 @@ The AtomS3R and AtomicBase GPS have specific pin connections that must be proper
 - SD_SCK_PIN: 7 (CLK pin G7)
 - SD_CS_PIN: 38 (CS pin G38)
 
-**Note**: It's crucial to use GPIO38 for the SD card CS pin to avoid conflicts with the GPS module on GPIO5.
+**Note**: It's crucial to use GPIO38 for the SD card CS pin to avoid conflicts with the GPS module on GPIO5. The SD card and display share the same SPI bus, which can cause conflicts if not properly configured.
 
 ## Software Requirements
 
@@ -84,17 +84,22 @@ The AtomS3R and AtomicBase GPS have specific pin connections that must be proper
 
 ## How It Works
 
-This device calculates time dilation based on Einstein's Theory of Special Relativity. Since the actual speed of light (approximately 300,000 km/s) would make time dilation effects imperceptible at everyday speeds, this device uses a virtual "modified light speed" (0.03 km/s) to exaggerate the effect.
+This device calculates time dilation based on Einstein's Special Theory of Relativity. Since time dilation effects at everyday speeds are imperceptible with the actual speed of light (approximately 300,000 km/s), this device uses a virtual "modified speed of light" (0.03 km/s) to exaggerate the effect.
 
-This allows you to experience significant time dilation effects even when walking or driving. For example, moving at 60 km/h will show a noticeable slowing of time compared to someone who is stationary.
+This allows you to experience noticeable time dilation effects even when walking or driving. For example, traveling at 60 km/h will show a significant time lag compared to someone who is stationary.
 
-The time dilation is calculated using the Lorentz factor:
+### Time Terminology
+- **DEV (Device Time)**: The actual elapsed time as measured by the device, equivalent to real-world time
+- **REL (Relativistic Time)**: Time calculated according to special relativity, which slows down as speed increases
+- **DIFF**: The difference between DEV and REL, showing the time dilation effect
+
+Time dilation is calculated using the Lorentz factor:
 
 γ = 1/√(1-(v²/c²))
 
 Where:
 - γ (gamma) is the time dilation factor
-- v is your current speed
+- v is the current speed
 - c is the modified speed of light (0.03 km/s or 108 km/h)
 
 ## Time Dilation Visualization
@@ -116,7 +121,7 @@ As shown in the graph, time dilation effects become increasingly pronounced as y
 If the display is not updating properly when pressing the button:
 - Ensure you're using the correct pin configurations for both GPS and SD card
 - Make sure SD_CS_PIN is set to 38 to avoid conflicts with GPS on GPIO5
-- Check that the button handling uses `M5.BtnA.wasClicked()` instead of `wasPressed()`
+- Check that the button handling uses `M5.BtnA.wasClicked()` instead of `wasPressed()` for better reliability
 
 ### SD Card Not Working
 If the SD card is not being detected or causing display issues:
@@ -129,7 +134,7 @@ If the SD card is not being detected or causing display issues:
   SD_CS_PIN: 38
   ```
 - Make sure the SPI initialization is done with `SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN)`
-- Use `SD.begin(SD_CS_PIN)` without additional parameters
+- Use `SD.begin(SD_CS_PIN)` after SPI initialization
 
 ### GPS Not Receiving Data
 - Ensure GPS_TX_PIN is set to 5
